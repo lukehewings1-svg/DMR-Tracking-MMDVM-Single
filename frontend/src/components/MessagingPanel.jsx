@@ -114,7 +114,7 @@ export function MessagingPanel({ radios, groups, messages, currentUser, defaultT
             {groups.length === 0 && <option value="">— no groups —</option>}
             {groups.map((g) => (
               <option key={g.id} value={g.id}>
-                {g.name} · TG {g.talkgroup_id}
+                {`${g.name} · TG ${g.talkgroup_id}`}
               </option>
             ))}
           </select>

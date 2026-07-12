@@ -4,6 +4,7 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
+  DialogDescription,
 } from "@/components/ui/dialog";
 import { createGroup, updateGroup, deleteGroup, simulateEmergency } from "@/lib/api";
 import { toast } from "sonner";
@@ -155,6 +156,10 @@ function GroupsManagerModal({ open, onClose, groups, onChanged }) {
       >
         <DialogHeader className="border-b border-[#2a2a2a] p-4">
           <DialogTitle className="text-base">Manage Groups (Talk Groups)</DialogTitle>
+          <DialogDescription className="mono text-[10px] text-neutral-500">
+            Create, rename, recolor or delete talk groups. Radios are auto-assigned to a group
+            the first time they transmit on its DMR talkgroup ID.
+          </DialogDescription>
         </DialogHeader>
 
         <div className="grid grid-cols-[1fr_1.2fr] gap-0">

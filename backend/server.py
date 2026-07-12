@@ -77,6 +77,7 @@ class InjectPayload(BaseModel):
     lat: float
     lon: float
     format: str = "SIMULATED"
+    talkgroup_id: Optional[int] = None
     speed: Optional[float] = None
     heading: Optional[float] = None
     rssi: Optional[int] = None
@@ -525,6 +526,7 @@ async def inject(payload: InjectPayload, _: dict = Depends(get_current_user)):
         "heading": payload.heading,
         "rssi": payload.rssi,
         "group_id": payload.group_id,
+        "talkgroup_id": payload.talkgroup_id,
     }
     await record_packet(packet)
     return {"ok": True, "id": packet["id"]}
