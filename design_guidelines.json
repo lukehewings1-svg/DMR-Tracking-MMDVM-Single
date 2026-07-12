@@ -1,0 +1,93 @@
+{
+  "theme": "dark",
+  "typography": {
+    "headings": "font-sans uppercase tracking-widest",
+    "body": "font-sans text-sm",
+    "data": "font-mono tracking-tight",
+    "font_families": {
+      "sans": "IBM Plex Sans, sans-serif",
+      "mono": "JetBrains Mono, monospace"
+    },
+    "rules": [
+      "Use monospace font for all callsigns, DMR IDs, coordinates, numerical data, and raw data logs.",
+      "Use condensed uppercase for section headers and widget titles with tight tracking.",
+      "Never center-align data tables or logs; always left-align or align by decimal/column."
+    ]
+  },
+  "colors": {
+    "background": {
+      "base": "#050505",
+      "surface": "#121212",
+      "surface_elevated": "#1A1A1A"
+    },
+    "border": "#2A2A2A",
+    "text": {
+      "primary": "#F3F4F6",
+      "secondary": "#9CA3AF",
+      "muted": "#4B5563"
+    },
+    "accents": {
+      "radar_green": "#39FF14",
+      "alert_red": "#FF3B30",
+      "tactical_cyan": "#00F0FF",
+      "warning_amber": "#FFB800"
+    },
+    "rules": [
+      "No gradients. Flat colors only.",
+      "Use 1px borders to separate sections. No soft shadows. Tactical minimalism.",
+      "Text over the map should use backdrop blur or dark solid background for maximum contrast.",
+      "Highlight recently updated rows in the roster with a brief flash of radar_green."
+    ]
+  },
+  "layouts": {
+    "grid_system": "High Density Grid (Tactical/Admin)",
+    "structure": "Full-height (100vh) application layout with no global page scroll. Hide scrollbars where possible using custom CSS.",
+    "areas": [
+      "Header/TopBar: App identity, Global connection status, MMDVM listener status (Port 62031).",
+      "Sidebar (Left): Radio Roster / Last-Heard list. Extremely dense, optimized for scanning.",
+      "Main Center: Leaflet Map occupying the largest visual area. Must show Position history trails (polylines).",
+      "Sidebar (Right) / Bottom Panel: Split between Multi-brand GPS parser status, Simulated Injector, and Raw Packet Log terminal."
+    ],
+    "spacing": "Tight padding (p-2 to p-4) to maximize data density on screen, but maintain 1px grid borders."
+  },
+  "visual_enhancers": {
+    "surfaces": "Grid Borders (The 'Technical' Look). Use solid flat backgrounds with 1px border `border-border/40`. No rounded corners (use `rounded-none`).",
+    "effects": "Terminal aesthetic for raw packet log. High contrast active states.",
+    "animations": [
+      "Pulsing animation (`animate-ping`) on the MMDVM connection status dot.",
+      "Radar blip animation on map markers when a new GPS packet is received.",
+      "New rows in the raw packet log should slide in smoothly."
+    ]
+  },
+  "components": {
+    "Map": "Use react-leaflet with a dark mode tile layer (e.g., CartoDB Dark Matter). Use custom divIcons for radio markers with pulsing rings. Draw polylines for history trails.",
+    "Radio Roster": "A dense list/table. Show Callsign (bold), DMR ID (mono, muted), RSSI (signal bar indicator), and relative time (e.g., '2s ago').",
+    "Parser Status Panel": "A grid showing status of Motorola LRRP, Hytera RRS, NMEA, APRS. Use neon lights (green for active/parsing, gray for inactive).",
+    "Raw Packet Log": "Terminal-like window (black bg, green/gray mono text, overflow-y-auto). Color-code prefixes like [LRRP] or [APRS].",
+    "Radio Detail Modal": "Use Shadcn Dialog. Show last N positions in a mini data table, speed, heading, and first/last heard timestamps.",
+    "Simulated Injector": "A functional panel with an 'Inject Mock Data' button to trigger simulated DMR radio packets to populate the map and roster."
+  },
+  "accessibility": {
+    "contrast": "Ensure all text meets 4.5:1 ratio over dark backgrounds.",
+    "motion": "Respect prefers-reduced-motion for the map marker pulsing and terminal auto-scroll.",
+    "testing": "All interactive elements and key metric displays MUST include `data-testid`."
+  },
+  "instructions_to_main_agent": [
+    "You MUST install `react-leaflet`, `leaflet`, `lucide-react`, `date-fns`.",
+    "For the Leaflet map, you need to import Leaflet CSS manually. Use the tile layer URL: `https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png` for the dark tactical map.",
+    "Fix Leaflet marker icon issues by using custom `L.divIcon` with Tailwind classes instead of default image markers.",
+    "For the dashboard layout, use CSS Grid or Flexbox to fill the entire viewport height (`h-screen overflow-hidden`).",
+    "Implement the 'Simulated GPS Injector' to periodically add fake radio data (mocked positions, RSSI, format) to the state so the map, polyline trails, roster, and logs actually populate and animate.",
+    "Ensure the raw packet log looks like a real terminal console (monospace, dark bg). Provide a mocked live-feed of packets.",
+    "DO NOT apply global `.App { text-align: center; }`. Keep text left-aligned.",
+    "Use a robust mock state management approach to simulate the real-time nature of this dashboard.",
+    "Apply `rounded-none` to all shadcn UI components (buttons, dialogs) to maintain the tactical SDR look.",
+    "Highlight specific data formats (Motorola LRRP, Hytera RRS) with different colors in the raw log."
+  ],
+  "UNIVERSAL_GUIDELINES_FOR_MAIN_AGENT": [
+    "Create depth through layered design elements with z-index hierarchy, but rely on borders rather than shadows for this technical look.",
+    "Every interaction needs micro-animations - hover states, transitions, entrance animations. Static = dead.",
+    "Always use modern button styles, for this app use sharp corners and tactical high-contrast hover states (e.g., hover:bg-tactical_cyan hover:text-black).",
+    "NEVER: use AI assistant Emoji characters like 🤖🧠💭💡🔮🎯 etc for icons."
+  ]
+}
