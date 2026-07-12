@@ -6,6 +6,69 @@ servers involved. Your MMDVMs talk directly to a server you control.
 
 ---
 
+## 0. Quick install on a Raspberry Pi (one command)
+
+If you just want to spin up a test node, use the bundled installer. It works on
+**Raspberry Pi 4 / 5 with 64-bit Raspberry Pi OS**, and on any Debian 12 or
+Ubuntu 22.04+ machine.
+
+**Option A — from a checkout of this repo:**
+
+```bash
+git clone <this-repo-url> dmr-tracker
+cd dmr-tracker
+sudo bash install.sh
+```
+
+**Option B — one-liner (if you've published the repo somewhere reachable):**
+
+```bash
+curl -fsSL https://<your-host>/install.sh | sudo REPO_URL=https://github.com/<you>/<repo>.git bash
+```
+
+The installer will:
+
+1. Install Python 3, Node 20, yarn, nginx, ufw, Docker.
+2. Run MongoDB 6 in a Docker container (survives reboots, no host-level Mongo mess).
+3. Generate a strong `JWT_SECRET` and write `backend/.env` + `frontend/.env`.
+4. Install Python + Node dependencies and build the production frontend.
+5. Register a `dmr-backend.service` systemd unit (auto-starts on boot).
+6. Configure nginx as a reverse proxy on port 80 (dashboard + `/api` + WebSocket).
+7. Open firewall ports **80/tcp** (dashboard) and **62031/udp** (MMDVM).
+8. Print the dashboard URL and admin credentials when finished.
+
+You can override any default via env vars before invoking the script:
+
+```bash
+sudo ADMIN_EMAIL=me@example.com ADMIN_PASSWORD=changeme \
+     HB_PASSWORD=SuperSecret SERVER_DMR_ID=9990001 \
+     bash install.sh
+```
+
+**Post-install:**
+
+```bash
+# Status / logs
+sudo systemctl status dmr-backend
+journalctl -u dmr-backend -f
+docker logs -f dmr-mongo
+
+# Update after a git pull
+sudo systemctl restart dmr-backend
+cd /opt/dmr-tracker/frontend && sudo yarn build
+
+# Uninstall
+sudo bash uninstall.sh           # keeps data
+sudo bash uninstall.sh --purge   # wipes /opt/dmr-tracker and the mongo volume
+```
+
+Once the installer finishes, open `http://<pi-ip>/` in a browser and log in with
+the admin credentials it printed. Then jump straight to [section 4](#4-mmdvm-setup)
+to point your first MMDVM at the Pi. The rest of this document is reference /
+manual-install / per-brand programming.
+
+---
+
 ## Table of contents
 
 1. [What you're building](#1-what-youre-building)
