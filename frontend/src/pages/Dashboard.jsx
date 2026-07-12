@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { TopBar } from "@/components/TopBar";
 import { MapView } from "@/components/MapView";
@@ -8,11 +8,15 @@ import { Injector } from "@/components/Injector";
 import { ParserStatus } from "@/components/ParserStatus";
 import { RadioDetailModal } from "@/components/RadioDetailModal";
 import { GeofencePanel, AlertsPanel } from "@/components/GeofencePanel";
+import { GroupsPanel } from "@/components/GroupsPanel";
+import { MessagingPanel } from "@/components/MessagingPanel";
+import { RepeatersPanel } from "@/components/RepeatersPanel";
+import { EmergencyBanner } from "@/components/EmergencyBanner";
 import { useLiveData } from "@/hooks/useLiveData";
 import { useAuth } from "@/context/AuthContext";
 import { clearAll } from "@/lib/api";
 import { toast } from "sonner";
-import { LogOut, ShieldCheck, Trash2 } from "lucide-react";
+import { LogOut, ShieldCheck, Trash2, BookOpen, MessageSquare, Map as MapIcon } from "lucide-react";
 
 export default function Dashboard() {
   const { user, signOut } = useAuth();
@@ -22,23 +26,35 @@ export default function Dashboard() {
     status,
     geofences,
     alerts,
+    groups,
+    messages,
+    repeaters,
+    emergencies,
+    voiceActivity,
     connected,
     lastEventAt,
     refreshAll,
     clearAllAlerts,
     consumeFlash,
   } = useLiveData();
+
   const [selectedId, setSelectedId] = useState(null);
   const [detailId, setDetailId] = useState(null);
+  const [groupFilter, setGroupFilter] = useState(null);
+  const [rightTab, setRightTab] = useState("ops"); // ops | msg
 
   const isAdmin = user?.role === "admin";
+
+  const filteredRadios = useMemo(
+    () => (groupFilter ? radios.filter((r) => r.group_id === groupFilter) : radios),
+    [radios, groupFilter]
+  );
   const detailRadio = radios.find((r) => r.dmr_id === detailId);
 
   const openDetail = (id) => setDetailId(id);
   const focus = (id) => setSelectedId(id);
 
   const handleClear = async () => {
-    if (!isAdmin) return;
     if (!window.confirm("Clear all radios and history?")) return;
     await clearAll();
     toast.success("Cleared");
@@ -47,14 +63,10 @@ export default function Dashboard() {
 
   return (
     <div
-      className="grid h-screen w-screen grid-rows-[auto_auto_1fr] overflow-hidden bg-[#050505]"
+      className="grid h-screen w-screen grid-rows-[auto_auto_auto_1fr] overflow-hidden bg-[#050505]"
       data-testid="dashboard"
     >
-      <TopBar
-        status={status}
-        connected={connected}
-        lastEventAt={lastEventAt}
-      />
+      <TopBar status={status} connected={connected} lastEventAt={lastEventAt} />
 
       {/* Session strip */}
       <div className="flex items-center justify-between border-b border-[#2a2a2a] bg-[#0a0a0a] px-4 py-1.5 mono text-[11px]">
@@ -63,15 +75,22 @@ export default function Dashboard() {
           <span className="text-neutral-100">{user?.email}</span>
           <span
             className={`border px-1.5 py-0.5 text-[9px] uppercase tracking-widest ${
-              isAdmin
-                ? "border-[#00f0ff] text-[#00f0ff]"
-                : "border-[#2a2a2a] text-neutral-400"
+              isAdmin ? "border-[#00f0ff] text-[#00f0ff]" : "border-[#2a2a2a] text-neutral-400"
             }`}
           >
             {user?.role}
           </span>
         </div>
         <div className="flex items-center gap-2">
+          <a
+            data-testid="nav-setup-guide"
+            href="/SETUP.md"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-1 border border-[#2a2a2a] px-2 py-1 text-neutral-300 hover:border-[#00f0ff] hover:text-[#00f0ff]"
+          >
+            <BookOpen className="h-3 w-3" /> Setup Guide
+          </a>
           {isAdmin && (
             <>
               <Link
@@ -100,18 +119,29 @@ export default function Dashboard() {
         </div>
       </div>
 
-      <div className="grid min-h-0 grid-cols-[300px_1fr_320px]">
+      <EmergencyBanner
+        emergencies={emergencies}
+        onFocus={(id) => {
+          focus(id);
+          openDetail(id);
+        }}
+        onCleared={refreshAll}
+      />
+
+      <div className="grid min-h-0 grid-cols-[300px_1fr_340px]">
         <Roster
-          radios={radios}
+          radios={filteredRadios}
           selectedId={selectedId}
           onSelect={focus}
           onOpenDetail={openDetail}
           consumeFlash={consumeFlash}
+          groups={groups}
         />
 
         <div className="grid min-h-0 grid-rows-[1fr_240px]">
           <MapView
-            radios={radios}
+            radios={filteredRadios}
+            groups={groups}
             selectedId={selectedId}
             onSelect={(id) => {
               focus(id);
@@ -122,18 +152,54 @@ export default function Dashboard() {
           <PacketLog packets={packets} />
         </div>
 
-        <div className="flex flex-col overflow-y-auto border-l border-[#2a2a2a] bg-[#0a0a0a]">
-          <ParserStatus packets={packets} parsers={status?.parsers} />
-          <AlertsPanel alerts={alerts} onClear={clearAllAlerts} />
-          <GeofencePanel onChange={refreshAll} />
-          <Injector onSent={refreshAll} />
-          <ConnectionHelp status={status} />
+        <div className="flex flex-col border-l border-[#2a2a2a] bg-[#0a0a0a] min-h-0">
+          {/* Right column tabs */}
+          <div className="flex border-b border-[#2a2a2a] shrink-0">
+            <TabBtn
+              testid="tab-ops"
+              active={rightTab === "ops"}
+              onClick={() => setRightTab("ops")}
+              icon={<MapIcon className="h-3 w-3" />}
+              label="Ops"
+            />
+            <TabBtn
+              testid="tab-messages"
+              active={rightTab === "msg"}
+              onClick={() => setRightTab("msg")}
+              icon={<MessageSquare className="h-3 w-3" />}
+              label={`Messages${messages.length ? ` (${messages.length})` : ""}`}
+            />
+          </div>
+
+          {rightTab === "ops" ? (
+            <div className="flex-1 overflow-y-auto">
+              <GroupsPanel
+                groups={groups}
+                filter={groupFilter}
+                onFilter={setGroupFilter}
+                onChanged={refreshAll}
+              />
+              <RepeatersPanel repeaters={repeaters} voiceActivity={voiceActivity} />
+              <ParserStatus packets={packets} parsers={status?.parsers} />
+              <AlertsPanel alerts={alerts} onClear={clearAllAlerts} />
+              <GeofencePanel onChange={refreshAll} />
+              <Injector onSent={refreshAll} />
+            </div>
+          ) : (
+            <MessagingPanel
+              radios={radios}
+              groups={groups}
+              messages={messages}
+              currentUser={user}
+            />
+          )}
         </div>
       </div>
 
       <RadioDetailModal
         dmrId={detailId}
         radio={detailRadio}
+        groups={groups}
         onClose={() => setDetailId(null)}
         onSaved={refreshAll}
         onDeleted={() => {
@@ -145,40 +211,19 @@ export default function Dashboard() {
   );
 }
 
-function ConnectionHelp({ status }) {
-  const bind = status?.listener?.bind || "0.0.0.0:62031";
-  const port = bind.split(":")[1] || "62031";
+function TabBtn({ active, onClick, icon, label, testid }) {
   return (
-    <div data-testid="help-panel" className="p-3 text-[11px]">
-      <div className="mb-1 text-[10px] uppercase tracking-[0.3em] text-neutral-500">
-        MMDVM Setup
-      </div>
-      <ol className="mono space-y-1 text-neutral-400">
-        <li>
-          <span className="text-neutral-600">1.</span> In{" "}
-          <span className="text-neutral-200">MMDVM.ini</span> under{" "}
-          <span className="text-[#00f0ff]">[DMR Network]</span> set
-          <br />
-          <span className="pl-4 text-neutral-300">Address = {"<this host>"}</span>
-          <br />
-          <span className="pl-4 text-neutral-300">Port = {port}</span>
-          <br />
-          <span className="pl-4 text-neutral-300">Password = PASSWORD</span>
-        </li>
-        <li>
-          <span className="text-neutral-600">2.</span> Restart MMDVMHost — it
-          authenticates against this app as its HB master.
-        </li>
-        <li>
-          <span className="text-neutral-600">3.</span> Enable GPS on your DMR
-          radios. Positions decode via LRRP / Hytera / NMEA / APRS.
-        </li>
-      </ol>
-      <div className="mt-3 border border-dashed border-[#2a2a2a] p-2 text-[10px] text-neutral-500">
-        Note: in this hosted preview the UDP port is not publicly reachable.
-        Self-host the backend to receive live MMDVM traffic, or use the injector
-        above to see the pipeline end-to-end.
-      </div>
-    </div>
+    <button
+      data-testid={testid}
+      onClick={onClick}
+      className={`flex flex-1 items-center justify-center gap-1.5 border-r border-[#2a2a2a] py-1.5 mono text-[10px] uppercase tracking-widest last:border-r-0 transition-colors ${
+        active
+          ? "bg-[#001a1f] text-[#00f0ff]"
+          : "text-neutral-400 hover:bg-[#111] hover:text-neutral-100"
+      }`}
+    >
+      {icon}
+      {label}
+    </button>
   );
 }

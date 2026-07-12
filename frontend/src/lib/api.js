@@ -21,8 +21,9 @@ export const wsUrl = () => {
   return url.toString();
 };
 
-// --------- Radios / positions / packets ---------
-export const fetchRadios = () => api.get("/radios").then((r) => r.data);
+// ---- Radios / positions / packets ----
+export const fetchRadios = (groupId) =>
+  api.get("/radios", { params: groupId ? { group_id: groupId } : {} }).then((r) => r.data);
 export const fetchStatus = () => api.get("/status").then((r) => r.data);
 export const fetchPackets = (limit = 200) =>
   api.get(`/packets?limit=${limit}`).then((r) => r.data);
@@ -38,34 +39,53 @@ export const updateRadio = (dmrId, meta) =>
 export const deleteRadio = (dmrId) =>
   api.delete(`/radios/${dmrId}`).then((r) => r.data);
 
-// --------- Auth ---------
+// ---- Auth ----
 export const login = (email, password) =>
   api.post("/auth/login", { email, password }).then((r) => r.data);
 export const register = (payload) =>
   api.post("/auth/register", payload).then((r) => r.data);
 export const me = () => api.get("/auth/me").then((r) => r.data);
 
-// --------- Admin ---------
-export const adminListUsers = () =>
-  api.get("/admin/users").then((r) => r.data);
-export const adminApproveUser = (id) =>
-  api.post(`/admin/users/${id}/approve`).then((r) => r.data);
-export const adminRejectUser = (id) =>
-  api.post(`/admin/users/${id}/reject`).then((r) => r.data);
-export const adminSetRole = (id, role) =>
-  api.post(`/admin/users/${id}/role`, { role }).then((r) => r.data);
-export const adminDeleteUser = (id) =>
-  api.delete(`/admin/users/${id}`).then((r) => r.data);
+// ---- Admin ----
+export const adminListUsers = () => api.get("/admin/users").then((r) => r.data);
+export const adminApproveUser = (id) => api.post(`/admin/users/${id}/approve`).then((r) => r.data);
+export const adminRejectUser = (id) => api.post(`/admin/users/${id}/reject`).then((r) => r.data);
+export const adminSetRole = (id, role) => api.post(`/admin/users/${id}/role`, { role }).then((r) => r.data);
+export const adminDeleteUser = (id) => api.delete(`/admin/users/${id}`).then((r) => r.data);
 
-// --------- Geofences + alerts ---------
+// ---- Geofences + alerts ----
 export const listGeofences = () => api.get("/geofences").then((r) => r.data);
-export const createGeofence = (body) =>
-  api.post("/geofences", body).then((r) => r.data);
-export const deleteGeofence = (id) =>
-  api.delete(`/geofences/${id}`).then((r) => r.data);
-export const listAlerts = (limit = 100) =>
-  api.get(`/alerts?limit=${limit}`).then((r) => r.data);
+export const createGeofence = (body) => api.post("/geofences", body).then((r) => r.data);
+export const deleteGeofence = (id) => api.delete(`/geofences/${id}`).then((r) => r.data);
+export const listAlerts = (limit = 100) => api.get(`/alerts?limit=${limit}`).then((r) => r.data);
 export const clearAlerts = () => api.delete("/alerts").then((r) => r.data);
+
+// ---- Groups (talk groups) ----
+export const listGroups = () => api.get("/groups").then((r) => r.data);
+export const createGroup = (body) => api.post("/groups", body).then((r) => r.data);
+export const updateGroup = (id, body) => api.patch(`/groups/${id}`, body).then((r) => r.data);
+export const deleteGroup = (id) => api.delete(`/groups/${id}`).then((r) => r.data);
+
+// ---- Messages ----
+export const listMessages = (limit = 200) => api.get(`/messages?limit=${limit}`).then((r) => r.data);
+export const sendMessage = (body) => api.post("/messages", body).then((r) => r.data);
+export const simulateInboundMessage = (body) =>
+  api.post("/messages/simulate-inbound", body).then((r) => r.data);
+
+// ---- Voice ----
+export const voiceStatus = () => api.get("/voice/status").then((r) => r.data);
+export const voicePtt = (body) => api.post("/voice/ptt", body).then((r) => r.data);
+
+// ---- Repeaters (MMDVMs) ----
+export const listRepeaters = () => api.get("/repeaters").then((r) => r.data);
+
+// ---- Emergencies ----
+export const listEmergencies = (status = "active") =>
+  api.get(`/emergencies?status_filter=${status}`).then((r) => r.data);
+export const clearEmergency = (id) =>
+  api.post(`/emergencies/${id}/clear`).then((r) => r.data);
+export const simulateEmergency = (body) =>
+  api.post("/emergencies/simulate", body).then((r) => r.data);
 
 export function apiErrorMessage(err) {
   const detail = err?.response?.data?.detail;

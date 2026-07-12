@@ -165,6 +165,30 @@ _APRS_RE = re.compile(
 )
 
 
+# --------------------------------------------------------------------------- #
+# Emergency alarm detection
+# --------------------------------------------------------------------------- #
+# Different brands signal emergency differently:
+#   * Motorola: CSBKO 0x24 (EmergencyAlarm), payload contains "EMER" ASCII tag
+#     in some MOTOTRBO variants; the frame's FLCO carries FLCO=6.
+#   * Hytera: broadcasts an emergency data burst with tag 0xB0 in the PDU
+#     preamble.
+#   * Generic: many radios send the ASCII substring "EMERGENCY" or "EMER" as
+#     part of the alarm payload for interoperability.
+# We match any of these signatures - detection tolerates false positives on the
+# frontend by showing the user which radio + when.
+_EMERGENCY_TAGS = (b"EMERGENCY", b"EMER", b"\xb0\x00\x00", b"\x24\xa0")
+
+
+def parse_emergency(payload: bytes) -> Optional[Dict[str, Any]]:
+    if not payload:
+        return None
+    for tag in _EMERGENCY_TAGS:
+        if tag in payload:
+            return {"type": "emergency_alarm", "signature": tag.hex()}
+    return None
+
+
 def parse_aprs(payload: bytes) -> Optional[Dict[str, Any]]:
     m = _APRS_RE.search(payload)
     if not m:

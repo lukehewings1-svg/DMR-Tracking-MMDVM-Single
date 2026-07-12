@@ -32,14 +32,14 @@ from auth import (
 from dmr_ingest import HBMaster, start_hb_master
 from dmr_parsers import parse_gps_payload, parser_names
 from geofence import GeofenceEngine
+from groups import GroupStore
+from messaging import MessageStore
+from voice import VoiceGateway
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / ".env")
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-)
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 logger = logging.getLogger("dmr-tracker")
 
 MONGO_URL = os.environ["MONGO_URL"]
@@ -47,6 +47,8 @@ DB_NAME = os.environ["DB_NAME"]
 HB_BIND_HOST = os.environ.get("HB_BIND_HOST", "0.0.0.0")
 HB_BIND_PORT = int(os.environ.get("HB_BIND_PORT", "62031"))
 HB_PASSWORD = os.environ.get("HB_PASSWORD", "PASSWORD")
+SERVER_DMR_ID = int(os.environ.get("SERVER_DMR_ID", "9990001"))
+DATA_SLOT = int(os.environ.get("DATA_SLOT", "1"))
 MAX_PACKETS_BUFFER = 500
 MAX_POSITIONS_PER_RADIO = 500
 
@@ -60,6 +62,9 @@ ws_clients: set[WebSocket] = set()
 hb_master: Optional[HBMaster] = None
 hb_transport: Optional[asyncio.DatagramTransport] = None
 geofence_engine: Optional[GeofenceEngine] = None
+group_store: Optional[GroupStore] = None
+message_store: Optional[MessageStore] = None
+voice_gateway = VoiceGateway()
 
 
 # --------------------------------------------------------------------------- #
@@ -75,6 +80,7 @@ class InjectPayload(BaseModel):
     speed: Optional[float] = None
     heading: Optional[float] = None
     rssi: Optional[int] = None
+    group_id: Optional[str] = None
 
 
 class InjectRawPayload(BaseModel):
@@ -88,6 +94,7 @@ class RadioMeta(BaseModel):
     icon: Optional[str] = None
     color: Optional[str] = None
     notes: Optional[str] = None
+    group_id: Optional[str] = None
 
 
 class GeofenceCreate(BaseModel):
@@ -98,9 +105,45 @@ class GeofenceCreate(BaseModel):
     alert_on: str = Field(default="both", pattern="^(enter|exit|both)$")
 
 
-# --------------------------------------------------------------------------- #
-# Helpers
-# --------------------------------------------------------------------------- #
+class GroupCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=48)
+    talkgroup_id: int = Field(ge=1, le=16777215)
+    color: Optional[str] = None
+    icon: Optional[str] = None
+    description: Optional[str] = None
+
+
+class GroupUpdate(BaseModel):
+    name: Optional[str] = None
+    talkgroup_id: Optional[int] = None
+    color: Optional[str] = None
+    icon: Optional[str] = None
+    description: Optional[str] = None
+
+
+class MessageSend(BaseModel):
+    text: str = Field(min_length=1, max_length=256)
+    target_dmr_id: Optional[int] = None
+    group_id: Optional[str] = None
+
+
+class InboundSMSInject(BaseModel):
+    from_dmr_id: int
+    text: str
+    talkgroup_id: Optional[int] = None
+    to_dmr_id: Optional[int] = None
+
+
+class VoicePttStart(BaseModel):
+    target_dmr_id: Optional[int] = None
+    group_id: Optional[str] = None
+
+
+class EmergencyInject(BaseModel):
+    dmr_id: int
+    talkgroup_id: Optional[int] = None
+
+
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -116,6 +159,9 @@ async def _broadcast(message: dict) -> None:
         ws_clients.discard(ws)
 
 
+# --------------------------------------------------------------------------- #
+# Packet + message + voice sinks (wired into HBMaster)
+# --------------------------------------------------------------------------- #
 async def record_packet(packet: dict) -> None:
     packet.setdefault("id", str(uuid.uuid4()))
     packet.setdefault("timestamp", _now_iso())
@@ -130,6 +176,16 @@ async def record_packet(packet: dict) -> None:
     callsign = packet.get("callsign") or (existing.get("callsign") if existing else None)
     icon = (existing.get("icon") if existing else None) or "Radio"
     color = (existing.get("color") if existing else None) or "#39ff14"
+    group_id = packet.get("group_id") or (existing.get("group_id") if existing else None)
+
+    # auto-assign group by talkgroup if not set
+    tg = packet.get("talkgroup_id")
+    if not group_id and tg and group_store:
+        g = await group_store.get_by_talkgroup(tg)
+        if g:
+            group_id = g["id"]
+            color = existing.get("color") if existing else g.get("color") or color
+            icon = existing.get("icon") if existing else g.get("icon") or icon
 
     await db.radios.update_one(
         {"dmr_id": dmr_id},
@@ -139,6 +195,7 @@ async def record_packet(packet: dict) -> None:
                 "callsign": callsign,
                 "icon": icon,
                 "color": color,
+                "group_id": group_id,
                 "last_lat": packet["lat"],
                 "last_lon": packet["lon"],
                 "last_seen": packet["timestamp"],
@@ -147,6 +204,8 @@ async def record_packet(packet: dict) -> None:
                 "last_heading": packet.get("heading"),
                 "last_rssi": packet.get("rssi"),
                 "last_source": packet.get("source", "MMDVM"),
+                "last_talkgroup": tg,
+                "last_repeater_id": packet.get("repeater_id"),
             },
             "$setOnInsert": {"first_seen": packet["timestamp"]},
             "$inc": {"position_count": 1},
@@ -168,6 +227,7 @@ async def record_packet(packet: dict) -> None:
         }
     )
 
+    # prune
     count = await db.positions.count_documents({"dmr_id": dmr_id})
     if count > MAX_POSITIONS_PER_RADIO:
         excess = count - MAX_POSITIONS_PER_RADIO
@@ -179,9 +239,82 @@ async def record_packet(packet: dict) -> None:
             await db.positions.delete_many({"id": {"$in": old_ids}})
 
     packet["callsign"] = callsign
+    packet["group_id"] = group_id
     await _broadcast({"type": "packet", "packet": packet})
     if geofence_engine:
         await geofence_engine.evaluate(packet)
+
+
+async def on_dmr_sms(inbound: dict) -> None:
+    if not message_store:
+        return
+    radio = await db.radios.find_one(
+        {"dmr_id": inbound["from_dmr_id"]}, {"_id": 0, "callsign": 1}
+    )
+    await message_store.record_inbound(
+        text=inbound["text"],
+        from_dmr_id=inbound["from_dmr_id"],
+        to_dmr_id=inbound["to_dmr_id"],
+        is_private=inbound["is_private"],
+        talkgroup_id=inbound.get("talkgroup_id"),
+        callsign=(radio or {}).get("callsign"),
+        repeater_id=inbound.get("repeater_id"),
+    )
+
+
+async def on_voice_activity(evt: dict) -> None:
+    radio = await db.radios.find_one(
+        {"dmr_id": evt["src_dmr_id"]}, {"_id": 0, "callsign": 1}
+    )
+    tg = evt.get("talkgroup_id")
+    voice_gateway.track(
+        talkgroup_id=tg or 0,
+        src_id=evt["src_dmr_id"],
+        callsign=(radio or {}).get("callsign"),
+        repeater_id=evt["repeater_id"],
+    )
+    await _broadcast({"type": "voice_activity", "activity": voice_gateway.active_talkgroups()})
+
+
+async def on_emergency(evt: dict) -> None:
+    """Radio pressed the emergency button - persist + broadcast."""
+    src_id = evt["src_dmr_id"]
+    radio = await db.radios.find_one({"dmr_id": src_id}, {"_id": 0}) or {}
+    ts = _now_iso()
+    doc = {
+        "id": str(uuid.uuid4()),
+        "dmr_id": src_id,
+        "callsign": radio.get("callsign"),
+        "group_id": radio.get("group_id"),
+        "last_lat": radio.get("last_lat"),
+        "last_lon": radio.get("last_lon"),
+        "talkgroup_id": evt.get("talkgroup_id"),
+        "repeater_id": evt.get("repeater_id"),
+        "signature": evt.get("signature"),
+        "is_private": evt.get("is_private"),
+        "status": "active",
+        "timestamp": ts,
+    }
+    await db.emergencies.insert_one(doc)
+    await db.radios.update_one(
+        {"dmr_id": src_id},
+        {
+            "$set": {
+                "in_emergency": True,
+                "emergency_at": ts,
+                "emergency_id": doc["id"],
+            }
+        },
+        upsert=True,
+    )
+    doc.pop("_id", None)
+    await _broadcast({"type": "emergency", "emergency": doc})
+
+
+async def send_dmrd_broadcast(frame: bytes) -> int:
+    if not hb_master:
+        return 0
+    return await hb_master.broadcast_dmrd(frame)
 
 
 # --------------------------------------------------------------------------- #
@@ -189,19 +322,33 @@ async def record_packet(packet: dict) -> None:
 # --------------------------------------------------------------------------- #
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global hb_master, hb_transport, geofence_engine
+    global hb_master, hb_transport, geofence_engine, group_store, message_store
     await auth.ensure_indexes()
     await auth.seed_admin()
     geofence_engine = GeofenceEngine(db, _broadcast)
+    group_store = GroupStore(db)
+    await group_store.ensure_indexes()
+    await group_store.seed_defaults()
+    message_store = MessageStore(
+        db=db,
+        broadcast=_broadcast,
+        send_dmrd=send_dmrd_broadcast,
+        server_dmr_id=SERVER_DMR_ID,
+        data_slot=DATA_SLOT,
+    )
+    await message_store.ensure_indexes()
     try:
         hb_transport, hb_master = await start_hb_master(
-            HB_BIND_HOST, HB_BIND_PORT, HB_PASSWORD, record_packet
+            HB_BIND_HOST,
+            HB_BIND_PORT,
+            HB_PASSWORD,
+            record_packet,
+            on_dmr_sms,
+            on_voice_activity,
+            on_emergency,
         )
     except OSError as exc:
-        logger.warning(
-            "HB Master could not bind to %s:%s (%s). Simulated injection still works.",
-            HB_BIND_HOST, HB_BIND_PORT, exc,
-        )
+        logger.warning("HB Master could not bind to %s:%s (%s).", HB_BIND_HOST, HB_BIND_PORT, exc)
         hb_transport = None
         hb_master = None
     yield
@@ -215,11 +362,11 @@ api_router = APIRouter(prefix="/api")
 
 
 # --------------------------------------------------------------------------- #
-# Public endpoints
+# Public + auth
 # --------------------------------------------------------------------------- #
 @api_router.get("/")
 async def root():
-    return {"service": "dmr-tracker", "version": "1.1"}
+    return {"service": "dmr-tracker", "version": "1.2"}
 
 
 @api_router.get("/status")
@@ -231,6 +378,8 @@ async def status(_: dict = Depends(get_current_user)):
             "stats": hb_master.snapshot() if hb_master else None,
         },
         "parsers": parser_names(),
+        "voice": voice_gateway.status(),
+        "server_dmr_id": SERVER_DMR_ID,
         "radios_tracked": await db.radios.count_documents({}),
         "positions_stored": await db.positions.count_documents({}),
         "packet_buffer": len(packet_log),
@@ -238,9 +387,6 @@ async def status(_: dict = Depends(get_current_user)):
     }
 
 
-# --------------------------------------------------------------------------- #
-# Auth endpoints
-# --------------------------------------------------------------------------- #
 @api_router.post("/auth/register", response_model=UserPublic)
 async def api_register(payload: RegisterPayload):
     return await register_user(payload)
@@ -259,12 +405,11 @@ async def api_me(user: dict = Depends(get_current_user)):
 
 @api_router.post("/auth/logout")
 async def api_logout(_: dict = Depends(get_current_user)):
-    # Bearer tokens are stateless; client just drops the token.
     return {"ok": True}
 
 
 # --------------------------------------------------------------------------- #
-# Admin endpoints
+# Admin users
 # --------------------------------------------------------------------------- #
 @api_router.get("/admin/users", response_model=List[UserPublic])
 async def admin_list_users(_: dict = Depends(get_current_admin)):
@@ -276,7 +421,7 @@ async def admin_list_users(_: dict = Depends(get_current_admin)):
 @api_router.post("/admin/users/{user_id}/approve", response_model=UserPublic)
 async def admin_approve(user_id: str, _: dict = Depends(get_current_admin)):
     result = await db.users.find_one_and_update(
-        {"id": user_id}, {"$set": {"status": "approved"}}, return_document=True
+        {"id": user_id}, {"$set": {"status": "approved"}}
     )
     if not result:
         raise HTTPException(status_code=404, detail="User not found")
@@ -315,16 +460,17 @@ async def admin_delete_user(user_id: str, admin: dict = Depends(get_current_admi
 
 
 # --------------------------------------------------------------------------- #
-# Radios / positions
+# Radios
 # --------------------------------------------------------------------------- #
 @api_router.get("/radios")
-async def list_radios(_: dict = Depends(get_current_user)) -> List[dict]:
-    cursor = db.radios.find({}, {"_id": 0}).sort("last_seen", -1)
+async def list_radios(group_id: Optional[str] = None, _: dict = Depends(get_current_user)):
+    q = {"group_id": group_id} if group_id else {}
+    cursor = db.radios.find(q, {"_id": 0}).sort("last_seen", -1)
     return await cursor.to_list(500)
 
 
 @api_router.get("/radios/{dmr_id}/positions")
-async def radio_positions(dmr_id: int, limit: int = 200, _: dict = Depends(get_current_user)) -> List[dict]:
+async def radio_positions(dmr_id: int, limit: int = 200, _: dict = Depends(get_current_user)):
     cursor = (
         db.positions.find({"dmr_id": dmr_id}, {"_id": 0})
         .sort("timestamp", 1)
@@ -335,10 +481,10 @@ async def radio_positions(dmr_id: int, limit: int = 200, _: dict = Depends(get_c
 
 @api_router.patch("/radios/{dmr_id}")
 async def update_radio(dmr_id: int, meta: RadioMeta, _: dict = Depends(get_current_user)):
-    updates = {k: v for k, v in meta.model_dump().items() if v is not None}
+    updates = {k: v for k, v in meta.model_dump(exclude_unset=True).items() if v is not None or k == "group_id"}
     if not updates:
         return {"ok": True}
-    await db.radios.update_one({"dmr_id": dmr_id}, {"$set": updates})
+    await db.radios.update_one({"dmr_id": dmr_id}, {"$set": updates}, upsert=False)
     await _broadcast({"type": "radio_update", "dmr_id": dmr_id, "updates": updates})
     return {"ok": True}
 
@@ -361,7 +507,7 @@ async def clear_all(_: dict = Depends(get_current_admin)):
 
 
 @api_router.get("/packets")
-async def get_packets(limit: int = 200, _: dict = Depends(get_current_user)) -> List[dict]:
+async def get_packets(limit: int = 200, _: dict = Depends(get_current_user)):
     return list(packet_log)[: min(limit, MAX_PACKETS_BUFFER)]
 
 
@@ -378,6 +524,7 @@ async def inject(payload: InjectPayload, _: dict = Depends(get_current_user)):
         "speed": payload.speed,
         "heading": payload.heading,
         "rssi": payload.rssi,
+        "group_id": payload.group_id,
     }
     await record_packet(packet)
     return {"ok": True, "id": packet["id"]}
@@ -406,6 +553,147 @@ async def inject_raw(payload: InjectRawPayload, _: dict = Depends(get_current_us
     }
     await record_packet(packet)
     return {"ok": True, "format": result["format"]}
+
+
+# --------------------------------------------------------------------------- #
+# Repeaters (MMDVMs)
+# --------------------------------------------------------------------------- #
+@api_router.get("/repeaters")
+async def list_repeaters(_: dict = Depends(get_current_user)):
+    return hb_master.snapshot()["sessions"] if hb_master else []
+
+
+# --------------------------------------------------------------------------- #
+# Groups
+# --------------------------------------------------------------------------- #
+@api_router.get("/groups")
+async def api_list_groups(_: dict = Depends(get_current_user)):
+    return await group_store.list()
+
+
+@api_router.post("/groups")
+async def api_create_group(body: GroupCreate, _: dict = Depends(get_current_admin)):
+    g = await group_store.create(body.model_dump())
+    await _broadcast({"type": "groups_changed"})
+    return g
+
+
+@api_router.patch("/groups/{group_id}")
+async def api_update_group(group_id: str, body: GroupUpdate, _: dict = Depends(get_current_admin)):
+    g = await group_store.update(group_id, body.model_dump(exclude_unset=True))
+    if not g:
+        raise HTTPException(status_code=404, detail="Group not found")
+    await _broadcast({"type": "groups_changed"})
+    return g
+
+
+@api_router.delete("/groups/{group_id}")
+async def api_delete_group(group_id: str, _: dict = Depends(get_current_admin)):
+    await group_store.delete(group_id)
+    await _broadcast({"type": "groups_changed"})
+    return {"ok": True}
+
+
+# --------------------------------------------------------------------------- #
+# Messages
+# --------------------------------------------------------------------------- #
+@api_router.get("/messages")
+async def api_list_messages(limit: int = 200, _: dict = Depends(get_current_user)):
+    return await message_store.list(limit=limit)
+
+
+@api_router.post("/messages")
+async def api_send_message(body: MessageSend, user: dict = Depends(get_current_user)):
+    if not body.target_dmr_id and not body.group_id:
+        raise HTTPException(status_code=400, detail="Provide target_dmr_id or group_id")
+    tg = None
+    if body.group_id:
+        g = await group_store.get(body.group_id)
+        if not g:
+            raise HTTPException(status_code=404, detail="Group not found")
+        tg = g["talkgroup_id"]
+    return await message_store.send(
+        text=body.text,
+        target_dmr_id=body.target_dmr_id,
+        talkgroup_id=tg,
+        sender_email=user["email"],
+    )
+
+
+@api_router.post("/messages/simulate-inbound")
+async def api_simulate_inbound(body: InboundSMSInject, _: dict = Depends(get_current_user)):
+    """Development helper: inject an inbound SMS as if a radio had sent it."""
+    radio = await db.radios.find_one({"dmr_id": body.from_dmr_id}, {"_id": 0, "callsign": 1})
+    return await message_store.record_inbound(
+        text=body.text,
+        from_dmr_id=body.from_dmr_id,
+        to_dmr_id=body.to_dmr_id or 0,
+        is_private=body.talkgroup_id is None,
+        talkgroup_id=body.talkgroup_id,
+        callsign=(radio or {}).get("callsign"),
+        repeater_id=None,
+    )
+
+
+# --------------------------------------------------------------------------- #
+# Voice
+# --------------------------------------------------------------------------- #
+@api_router.get("/voice/status")
+async def api_voice_status(_: dict = Depends(get_current_user)):
+    return voice_gateway.status()
+
+
+@api_router.post("/voice/ptt")
+async def api_voice_ptt(body: VoicePttStart, _: dict = Depends(get_current_user)):
+    tg = None
+    if body.group_id:
+        g = await group_store.get(body.group_id)
+        if not g:
+            raise HTTPException(status_code=404, detail="Group not found")
+        tg = g["talkgroup_id"]
+    return voice_gateway.transmit_from_browser(body.target_dmr_id, tg)
+
+
+# --------------------------------------------------------------------------- #
+# Emergency
+# --------------------------------------------------------------------------- #
+@api_router.get("/emergencies")
+async def list_emergencies(status_filter: Optional[str] = "active", limit: int = 100, _: dict = Depends(get_current_user)):
+    q = {"status": status_filter} if status_filter else {}
+    cursor = db.emergencies.find(q, {"_id": 0}).sort("timestamp", -1).limit(limit)
+    return await cursor.to_list(limit)
+
+
+@api_router.post("/emergencies/{emergency_id}/clear")
+async def clear_emergency(emergency_id: str, _: dict = Depends(get_current_admin)):
+    doc = await db.emergencies.find_one({"id": emergency_id}, {"_id": 0})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Emergency not found")
+    await db.emergencies.update_one(
+        {"id": emergency_id},
+        {"$set": {"status": "cleared", "cleared_at": _now_iso()}},
+    )
+    await db.radios.update_one(
+        {"dmr_id": doc["dmr_id"]},
+        {"$set": {"in_emergency": False}, "$unset": {"emergency_id": ""}},
+    )
+    await _broadcast({"type": "emergency_cleared", "emergency_id": emergency_id, "dmr_id": doc["dmr_id"]})
+    return {"ok": True}
+
+
+@api_router.post("/emergencies/simulate")
+async def simulate_emergency(body: EmergencyInject, _: dict = Depends(get_current_user)):
+    """Development helper: fire an emergency as if a radio pressed its panic button."""
+    await on_emergency(
+        {
+            "src_dmr_id": body.dmr_id,
+            "talkgroup_id": body.talkgroup_id,
+            "repeater_id": 0,
+            "is_private": False,
+            "signature": "SIMULATED",
+        }
+    )
+    return {"ok": True}
 
 
 # --------------------------------------------------------------------------- #
@@ -439,7 +727,7 @@ async def clear_alerts(_: dict = Depends(get_current_admin)):
 
 
 # --------------------------------------------------------------------------- #
-# WebSocket (token in query string since browsers can't send headers on WS)
+# WebSocket (Bearer token via query string)
 # --------------------------------------------------------------------------- #
 @api_router.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
@@ -473,7 +761,6 @@ async def websocket_endpoint(websocket: WebSocket):
 
 
 app.include_router(api_router)
-
 app.add_middleware(
     CORSMiddleware,
     allow_credentials=True,

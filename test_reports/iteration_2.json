@@ -1,0 +1,43 @@
+{
+  "summary": "v1.2 regression + new-feature testing. All 14 pre-existing backend tests still pass. 14 new backend tests added (test_v12_features.py) covering groups CRUD, radio-group assignment/unassign cascade, messages (group/private/inbound/invalid), voice (status + PTT SMS-fallback), emergencies (simulate/list/clear + radio.in_emergency flip), repeaters auth + shape, static SETUP.md files, and voice.ambe_hardware_available=false. Frontend UI test verified: login, dashboard, tabs (Ops + Messages), Groups panel with 5 chips + Manage modal + 4 simulate-emergency buttons, injected radio + simulated emergency triggered red banner ('EMERGENCY · 2 ACTIVE'), red roster row highlight, red map marker with 'SOS' label + pulsing ring, bottom-right toast 'EMERGENCY: TEST-UI Radio panic button pressed', banner-X clear worked (2->1 active), Messages tab conversation + group send stored + visible, Setup Guide nav present.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "/api/inject", "issue": "InjectPayload does not accept talkgroup_id, so the auto-assign-group-by-talkgroup code path in record_packet() cannot be exercised via the simulation endpoint (only via real HB master UDP ingest). Consider adding talkgroup_id to InjectPayload for testability."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "MessagingPanel.jsx (~line 116)", "issue": "React hydration error: '<span> cannot be a child of <option>'. ve-dynamic wraps the option's text child in a span. Not blocking (message send works) but pollutes console with hydration errors. Fix: wrap group/radio label with a plain string, e.g. `{`${g.name} · TG ${g.talkgroup_id}`}` on a single expression or add key differently.", "selector": "[data-testid='msg-group-select'] option", "priority": "LOW"},
+      {"component": "Radix DialogContent (Groups manage modal + maybe others)", "issue": "A11y warning: 'Missing Description or aria-describedby={undefined} for {DialogContent}'. Add <DialogDescription> or aria-describedby.", "selector": "[data-testid='groups-manage'] modal", "priority": "LOW"}
+    ],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/backend_test.py",
+    "/app/backend/tests/test_v12_features.py",
+    "/app/test_reports/pytest/pytest_results.xml",
+    "/app/test_reports/pytest/pytest_v12.xml"
+  ],
+  "action_items": [
+    "(Optional) Add talkgroup_id to InjectPayload so /api/inject can exercise the auto-group-by-tg path in tests.",
+    "(Optional) Fix <span> inside <option> React hydration warning in MessagingPanel.jsx around the group/radio <option> children.",
+    "(Optional) Add DialogDescription/aria-describedby to Radix DialogContent instances (groups-manage modal) for a11y."
+  ],
+  "critical_code_review_comments": [
+    "server.py update_radio uses model_dump(exclude_unset=True) then filters out None values EXCEPT for group_id (allowing group_id=None to unset via $set). Works, but silently ignores non-None strings that are empty. Consider using $unset for group_id=None instead of storing None.",
+    "Emergency simulate endpoint (/api/emergencies/simulate) is auth=user (not admin). That's fine for a dev helper but may want to gate it in production.",
+    "MessageStore.send with target_dmr_id also honors group_id-derived talkgroup (from endpoint). If both are provided, it treats it as private (is_private=True) and ignores talkgroup. Endpoint doesn't reject the ambiguous combination - minor UX issue.",
+    "groups.py update() casts talkgroup_id to int if present, but PATCH accepts None keys correctly. Good.",
+    "WebSocket handler catches broad Exception; no logging - would help debugging in prod."
+  ],
+  "updated_files": ["/app/backend/tests/test_v12_features.py"],
+  "success_rate": {"backend": "100% (28/28, 1 documented skip)", "frontend": "100% of tested flows"},
+  "test_credentials": "admin@dmrtracker.app / admin123 (from /app/memory/test_credentials.md)",
+  "seed_data_creation": "Test-created radios (TEST-UI dmr_id 7778888, TEST-GRP 41182xx, TEST-EMG 51182xx) cleaned up in each test. Test group TEST_Ambulance_* also deleted in-test.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "New pytest file /app/backend/tests/test_v12_features.py covers groups/messages/voice/emergencies/repeaters/static-setup. Backend BASE_URL falls back to preview URL if env not set (pytest env doesn't inherit REACT_APP_BACKEND_URL). Voice/AMBE + real HB master UDP path cannot be exercised in preview (documented in review_request mocked_apis). Frontend WebSocket occasionally shows an initial 'connection closed before established' warning but the app recovers - not a real issue. Two pre-existing 'stale' emergencies exist in DB from earlier iterations (e.g. K7SAR-1), so /emergencies?status_filter=active is non-empty even without new triggers - your tests should key off dmr_id or emergency_id, not count.",
+  "rca of the issue": "N/A - no blocking bugs. All requested v1.2 features verified end-to-end."
+}

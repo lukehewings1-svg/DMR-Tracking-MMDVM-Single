@@ -4,21 +4,24 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
+  DialogDescription,
 } from "@/components/ui/dialog";
-import { fetchPositions, updateRadio, deleteRadio } from "@/lib/api";
+import { fetchPositions, updateRadio, deleteRadio, clearEmergency } from "@/lib/api";
 import { ICON_SET, COLOR_SET, iconFor } from "@/lib/icons";
 import { formatDistanceToNowStrict, format } from "date-fns";
-import { Save, Trash2 } from "lucide-react";
+import { Save, Trash2, AlertOctagon } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/context/AuthContext";
+import { PTTButton } from "@/components/PTTButton";
 
-export function RadioDetailModal({ dmrId, radio, onClose, onSaved, onDeleted }) {
+export function RadioDetailModal({ dmrId, radio, groups, onClose, onSaved, onDeleted }) {
   const { user } = useAuth();
   const [positions, setPositions] = useState([]);
   const [callsign, setCallsign] = useState("");
   const [icon, setIcon] = useState("Radio");
   const [color, setColor] = useState("#39ff14");
   const [notes, setNotes] = useState("");
+  const [groupId, setGroupId] = useState("");
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -27,6 +30,7 @@ export function RadioDetailModal({ dmrId, radio, onClose, onSaved, onDeleted }) 
     setIcon(radio?.icon || "Radio");
     setColor(radio?.color || "#39ff14");
     setNotes(radio?.notes || "");
+    setGroupId(radio?.group_id || "");
     setLoading(true);
     fetchPositions(dmrId)
       .then(setPositions)
@@ -38,10 +42,8 @@ export function RadioDetailModal({ dmrId, radio, onClose, onSaved, onDeleted }) 
     let dist = 0;
     for (let i = 1; i < positions.length; i++) {
       dist += haversineKm(
-        positions[i - 1].lat,
-        positions[i - 1].lon,
-        positions[i].lat,
-        positions[i].lon,
+        positions[i - 1].lat, positions[i - 1].lon,
+        positions[i].lat, positions[i].lon
       );
     }
     const speeds = positions.map((p) => p.speed).filter((v) => v != null);
@@ -49,12 +51,15 @@ export function RadioDetailModal({ dmrId, radio, onClose, onSaved, onDeleted }) 
     return { dist, maxSpeed };
   }, [positions]);
 
+  const selectedGroup = groups?.find((g) => g.id === groupId);
+
   const save = async () => {
     await updateRadio(dmrId, {
       callsign: callsign || null,
       icon,
       color,
       notes: notes || null,
+      group_id: groupId || null,
     });
     toast.success("Radio updated");
     onSaved?.();
@@ -67,14 +72,26 @@ export function RadioDetailModal({ dmrId, radio, onClose, onSaved, onDeleted }) 
     onDeleted?.();
   };
 
+  const clearDistress = async () => {
+    if (!radio?.emergency_id) return;
+    try {
+      await clearEmergency(radio.emergency_id);
+      toast.success("Emergency cleared");
+      onSaved?.();
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "Failed");
+    }
+  };
+
   const SelectedIcon = iconFor(icon);
   const canDelete = user?.role === "admin";
+  const canClearEmg = user?.role === "admin" && radio?.in_emergency;
 
   return (
     <Dialog open={!!dmrId} onOpenChange={(v) => !v && onClose?.()}>
       <DialogContent
         data-testid="radio-detail"
-        className="max-w-4xl bg-[#0a0a0a] border-[#2a2a2a] text-neutral-100 rounded-none p-0"
+        className="max-w-5xl bg-[#0a0a0a] border-[#2a2a2a] text-neutral-100 rounded-none p-0"
       >
         <DialogHeader className="border-b border-[#2a2a2a] p-4 space-y-1">
           <DialogTitle className="flex items-center gap-3 text-lg">
@@ -84,20 +101,36 @@ export function RadioDetailModal({ dmrId, radio, onClose, onSaved, onDeleted }) 
             >
               <SelectedIcon className="h-5 w-5" />
             </div>
-            <div>
+            <div className="min-w-0">
               <div className="mono text-[10px] uppercase tracking-widest text-neutral-500">
                 DMR ID {dmrId}
+                {radio?.in_emergency && (
+                  <span className="ml-2 text-[#ff3b30]">· IN DISTRESS</span>
+                )}
               </div>
               <div className="mono text-base text-neutral-100">
                 {radio?.callsign || "— unassigned —"}
               </div>
             </div>
           </DialogTitle>
+          <DialogDescription className="mono text-[10px] text-neutral-500">
+            Live status, position history, PTT and DMR messaging for this radio.
+          </DialogDescription>
         </DialogHeader>
 
         <div className="grid gap-4 p-4 md:grid-cols-2">
-          {/* Left: metadata form */}
+          {/* Left: metadata form + PTT */}
           <div className="space-y-4">
+            {canClearEmg && (
+              <button
+                data-testid="detail-clear-emergency"
+                onClick={clearDistress}
+                className="flex w-full items-center justify-center gap-2 border-2 border-[#ff3b30] bg-[#ff3b30] px-3 py-2 mono text-[11px] uppercase tracking-widest text-black hover:bg-black hover:text-[#ff3b30]"
+              >
+                <AlertOctagon className="h-4 w-4" /> Acknowledge / Clear Emergency
+              </button>
+            )}
+
             <Field label="Callsign">
               <input
                 data-testid="detail-callsign"
@@ -106,6 +139,22 @@ export function RadioDetailModal({ dmrId, radio, onClose, onSaved, onDeleted }) 
                 maxLength={16}
                 className="w-full border border-[#2a2a2a] bg-black px-3 py-2 mono text-sm uppercase tracking-wider text-neutral-100 outline-none focus:border-[#00f0ff]"
               />
+            </Field>
+
+            <Field label="Group">
+              <select
+                data-testid="detail-group"
+                value={groupId}
+                onChange={(e) => setGroupId(e.target.value)}
+                className="w-full border border-[#2a2a2a] bg-black px-3 py-2 mono text-sm text-neutral-100 outline-none focus:border-[#00f0ff]"
+              >
+                <option value="">— none —</option>
+                {(groups || []).map((g) => (
+                  <option key={g.id} value={g.id}>
+                    {g.name} · TG {g.talkgroup_id}
+                  </option>
+                ))}
+              </select>
             </Field>
 
             <div>
@@ -143,11 +192,8 @@ export function RadioDetailModal({ dmrId, radio, onClose, onSaved, onDeleted }) 
                     data-testid={`color-${label.toLowerCase()}`}
                     type="button"
                     onClick={() => setColor(key)}
-                    title={label}
                     className={`h-6 w-6 border transition-transform ${
-                      color === key
-                        ? "scale-110 border-white"
-                        : "border-[#2a2a2a] hover:scale-105"
+                      color === key ? "scale-110 border-white" : "border-[#2a2a2a] hover:scale-105"
                     }`}
                     style={{ background: key }}
                   />
@@ -160,7 +206,7 @@ export function RadioDetailModal({ dmrId, radio, onClose, onSaved, onDeleted }) 
                 data-testid="detail-notes"
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}
-                rows={3}
+                rows={2}
                 className="w-full border border-[#2a2a2a] bg-black px-3 py-2 mono text-sm text-neutral-100 outline-none focus:border-[#00f0ff]"
               />
             </Field>
@@ -183,6 +229,25 @@ export function RadioDetailModal({ dmrId, radio, onClose, onSaved, onDeleted }) 
                 </button>
               )}
             </div>
+
+            <div className="border-t border-[#2a2a2a] pt-3">
+              <div className="mono mb-1 text-[10px] uppercase tracking-widest text-neutral-500">
+                Voice Contact
+              </div>
+              <PTTButton
+                targetDmrId={dmrId}
+                callerCallsign={user?.callsign || "control"}
+              />
+              {selectedGroup && (
+                <div className="mt-2">
+                  <PTTButton
+                    groupId={selectedGroup.id}
+                    groupName={selectedGroup.name}
+                    callerCallsign={user?.callsign || "control"}
+                  />
+                </div>
+              )}
+            </div>
           </div>
 
           {/* Right: metrics + history */}
@@ -191,25 +256,14 @@ export function RadioDetailModal({ dmrId, radio, onClose, onSaved, onDeleted }) 
               <StatBox label="Positions" value={positions.length} />
               <StatBox
                 label="Last Heard"
-                value={
-                  radio?.last_seen
-                    ? formatDistanceToNowStrict(new Date(radio.last_seen)) + " ago"
-                    : "—"
-                }
+                value={radio?.last_seen ? formatDistanceToNowStrict(new Date(radio.last_seen)) + " ago" : "—"}
               />
-              <StatBox
-                label="Trail Length"
-                value={stats ? `${stats.dist.toFixed(2)} km` : "—"}
-              />
-              <StatBox
-                label="Max Speed"
-                value={stats?.maxSpeed != null ? `${stats.maxSpeed} kph` : "—"}
-              />
+              <StatBox label="Trail Length" value={stats ? `${stats.dist.toFixed(2)} km` : "—"} />
+              <StatBox label="Max Speed" value={stats?.maxSpeed != null ? `${stats.maxSpeed} kph` : "—"} />
               <StatBox label="Format" value={radio?.last_format || "—"} />
-              <StatBox
-                label="Last RSSI"
-                value={radio?.last_rssi != null ? radio.last_rssi + " dBm" : "—"}
-              />
+              <StatBox label="Last RSSI" value={radio?.last_rssi != null ? radio.last_rssi + " dBm" : "—"} />
+              <StatBox label="Talkgroup" value={radio?.last_talkgroup ?? "—"} />
+              <StatBox label="Repeater" value={radio?.last_repeater_id ?? "—"} />
             </div>
 
             <div className="border border-[#2a2a2a]">
@@ -217,13 +271,8 @@ export function RadioDetailModal({ dmrId, radio, onClose, onSaved, onDeleted }) 
                 <span>Position History</span>
                 <span>{positions.length} pts</span>
               </div>
-              <div
-                data-testid="position-history"
-                className="max-h-72 overflow-y-auto mono text-[11px]"
-              >
-                {loading && (
-                  <div className="p-3 text-neutral-600">loading…</div>
-                )}
+              <div data-testid="position-history" className="max-h-72 overflow-y-auto mono text-[11px]">
+                {loading && <div className="p-3 text-neutral-600">loading…</div>}
                 {!loading && positions.length === 0 && (
                   <div className="p-3 text-neutral-600">no positions</div>
                 )}
@@ -233,9 +282,7 @@ export function RadioDetailModal({ dmrId, radio, onClose, onSaved, onDeleted }) 
                     className="grid grid-cols-[80px_1fr_60px] border-b border-[#1a1a1a] px-2 py-1 last:border-b-0"
                   >
                     <span className="text-neutral-500">
-                      {p.timestamp
-                        ? format(new Date(p.timestamp), "HH:mm:ss")
-                        : "—"}
+                      {p.timestamp ? format(new Date(p.timestamp), "HH:mm:ss") : "—"}
                     </span>
                     <span className="text-neutral-200">
                       {p.lat.toFixed(5)}, {p.lon.toFixed(5)}
@@ -268,9 +315,7 @@ function Field({ label, children }) {
 function StatBox({ label, value }) {
   return (
     <div className="border border-[#2a2a2a] px-2 py-1.5">
-      <div className="text-[9px] uppercase tracking-widest text-neutral-500">
-        {label}
-      </div>
+      <div className="text-[9px] uppercase tracking-widest text-neutral-500">{label}</div>
       <div className="mono text-sm text-neutral-100 mt-0.5">{value}</div>
     </div>
   );

@@ -1,5 +1,6 @@
 import { formatDistanceToNowStrict } from "date-fns";
 import { iconFor } from "@/lib/icons";
+import { AlertOctagon } from "lucide-react";
 
 function relTime(iso) {
   if (!iso) return "—";
@@ -30,7 +31,8 @@ function RssiBar({ rssi }) {
   );
 }
 
-export function Roster({ radios, selectedId, onSelect, consumeFlash, onOpenDetail }) {
+export function Roster({ radios, selectedId, onSelect, consumeFlash, onOpenDetail, groups }) {
+  const groupById = new Map((groups || []).map((g) => [g.id, g]));
   return (
     <aside
       data-testid="roster"
@@ -57,8 +59,10 @@ export function Roster({ radios, selectedId, onSelect, consumeFlash, onOpenDetai
         {radios.map((r) => {
           const flash = consumeFlash(r.dmr_id);
           const selected = r.dmr_id === selectedId;
-          const color = r.color || "#39ff14";
-          const IconComp = iconFor(r.icon);
+          const grp = r.group_id ? groupById.get(r.group_id) : null;
+          const color = grp?.color || r.color || "#39ff14";
+          const IconComp = iconFor(r.icon || grp?.icon);
+          const distress = r.in_emergency;
           return (
             <div
               key={r.dmr_id}
@@ -66,18 +70,29 @@ export function Roster({ radios, selectedId, onSelect, consumeFlash, onOpenDetai
               onClick={() => onSelect(r.dmr_id)}
               onDoubleClick={() => onOpenDetail?.(r.dmr_id)}
               className={`cursor-pointer border-b border-[#1a1a1a] px-3 py-2 transition-colors ${
-                selected
+                distress
+                  ? "border-l-2 border-l-[#ff3b30] bg-[#1a0505]"
+                  : selected
                   ? "bg-[#001a1f] border-l-2 border-l-[#00f0ff]"
                   : "hover:bg-[#111]"
               } ${flash ? "row-flash" : ""}`}
+              style={distress ? { animation: "emergency-row 1.2s ease-in-out infinite" } : undefined}
               title="Click to focus map · Double-click for details"
             >
               <div className="flex items-center gap-2">
                 <div
-                  className="flex h-7 w-7 items-center justify-center border shrink-0"
-                  style={{ color, borderColor: color + "55" }}
+                  className="relative flex h-7 w-7 items-center justify-center border shrink-0"
+                  style={{ color: distress ? "#ff3b30" : color, borderColor: (distress ? "#ff3b30" : color) + "55" }}
                 >
                   <IconComp className="h-4 w-4" />
+                  {distress && (
+                    <span
+                      className="absolute -right-1.5 -top-1.5 flex h-3 w-3 items-center justify-center border border-[#ff3b30] bg-[#ff3b30] text-black"
+                      title="EMERGENCY"
+                    >
+                      <AlertOctagon className="h-2.5 w-2.5" />
+                    </span>
+                  )}
                 </div>
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center justify-between gap-2">
@@ -88,14 +103,24 @@ export function Roster({ radios, selectedId, onSelect, consumeFlash, onOpenDetai
                     </div>
                     <RssiBar rssi={r.last_rssi} />
                   </div>
-                  <div className="mono text-[10px] text-neutral-500">
+                  <div className="mono text-[10px] text-neutral-500 truncate">
                     ID {r.dmr_id} · {r.last_format || "?"}
+                    {grp && (
+                      <span
+                        className="ml-1 border-l border-[#2a2a2a] pl-1"
+                        style={{ color: grp.color }}
+                      >
+                        {grp.name}
+                      </span>
+                    )}
                   </div>
                 </div>
               </div>
               <div className="mt-1 flex items-center justify-between mono text-[10px] text-neutral-500">
                 <span>
-                  {r.last_lat?.toFixed(4)}, {r.last_lon?.toFixed(4)}
+                  {r.last_lat != null && r.last_lon != null
+                    ? `${r.last_lat.toFixed(4)}, ${r.last_lon.toFixed(4)}`
+                    : "no fix"}
                 </span>
                 <span className="text-neutral-400">{relTime(r.last_seen)}</span>
               </div>
@@ -104,7 +129,7 @@ export function Roster({ radios, selectedId, onSelect, consumeFlash, onOpenDetai
         })}
       </div>
       <div className="border-t border-[#2a2a2a] px-3 py-2 mono text-[10px] text-neutral-600">
-        Double-click a row to edit call sign & icon
+        Double-click a row to edit callsign, icon, group & PTT
       </div>
     </aside>
   );
