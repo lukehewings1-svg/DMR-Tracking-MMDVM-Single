@@ -776,16 +776,17 @@ async def api_send_message(body: MessageSend, user: dict = Depends(get_current_u
 @api_router.post("/messages/simulate-inbound")
 async def api_simulate_inbound(body: InboundSMSInject, _: dict = Depends(get_current_user)):
     """Development helper: inject an inbound SMS as if a radio had sent it."""
-    radio = await db.radios.find_one({"dmr_id": body.from_dmr_id}, {"_id": 0, "callsign": 1})
-    return await message_store.record_inbound(
-        text=body.text,
-        from_dmr_id=body.from_dmr_id,
-        to_dmr_id=body.to_dmr_id or 0,
-        is_private=body.talkgroup_id is None,
-        talkgroup_id=body.talkgroup_id,
-        callsign=(radio or {}).get("callsign"),
-        repeater_id=None,
+    await on_dmr_sms(
+        {
+            "text": body.text,
+            "from_dmr_id": body.from_dmr_id,
+            "to_dmr_id": body.to_dmr_id or 0,
+            "is_private": body.talkgroup_id is None,
+            "talkgroup_id": body.talkgroup_id,
+            "repeater_id": None,
+        }
     )
+    return {"ok": True}
 
 
 # --------------------------------------------------------------------------- #
