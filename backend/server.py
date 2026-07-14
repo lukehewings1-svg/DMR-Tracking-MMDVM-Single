@@ -29,6 +29,7 @@ from auth import (
     register_user,
     to_public,
 )
+from channels import ChannelStore
 from dmr_ingest import HBMaster, start_hb_master
 from dmr_parsers import parse_gps_payload, parser_names
 from geofence import GeofenceEngine
@@ -63,6 +64,7 @@ hb_master: Optional[HBMaster] = None
 hb_transport: Optional[asyncio.DatagramTransport] = None
 geofence_engine: Optional[GeofenceEngine] = None
 group_store: Optional[GroupStore] = None
+channel_store: Optional[ChannelStore] = None
 message_store: Optional[MessageStore] = None
 voice_gateway = VoiceGateway()
 
@@ -82,6 +84,7 @@ class InjectPayload(BaseModel):
     heading: Optional[float] = None
     rssi: Optional[int] = None
     group_id: Optional[str] = None
+    channel: Optional[int] = Field(default=1, ge=1, le=2)
 
 
 class InjectRawPayload(BaseModel):
@@ -122,10 +125,17 @@ class GroupUpdate(BaseModel):
     description: Optional[str] = None
 
 
+class ChannelUpdate(BaseModel):
+    name: Optional[str] = Field(default=None, max_length=48)
+    description: Optional[str] = None
+    color: Optional[str] = None
+
+
 class MessageSend(BaseModel):
     text: str = Field(min_length=1, max_length=256)
     target_dmr_id: Optional[int] = None
     group_id: Optional[str] = None
+    channel: Optional[int] = Field(default=None, ge=1, le=2)
 
 
 class InboundSMSInject(BaseModel):
@@ -207,6 +217,7 @@ async def record_packet(packet: dict) -> None:
                 "last_source": packet.get("source", "MMDVM"),
                 "last_talkgroup": tg,
                 "last_repeater_id": packet.get("repeater_id"),
+                "last_channel": packet.get("channel") or 1,
             },
             "$setOnInsert": {"first_seen": packet["timestamp"]},
             "$inc": {"position_count": 1},
@@ -225,6 +236,7 @@ async def record_packet(packet: dict) -> None:
             "speed": packet.get("speed"),
             "heading": packet.get("heading"),
             "rssi": packet.get("rssi"),
+            "channel": packet.get("channel") or 1,
         }
     )
 
@@ -323,13 +335,16 @@ async def send_dmrd_broadcast(frame: bytes) -> int:
 # --------------------------------------------------------------------------- #
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global hb_master, hb_transport, geofence_engine, group_store, message_store
+    global hb_master, hb_transport, geofence_engine, group_store, channel_store, message_store
     await auth.ensure_indexes()
     await auth.seed_admin()
     geofence_engine = GeofenceEngine(db, _broadcast)
     group_store = GroupStore(db)
     await group_store.ensure_indexes()
     await group_store.seed_defaults()
+    channel_store = ChannelStore(db)
+    await channel_store.ensure_indexes()
+    await channel_store.seed_defaults()
     message_store = MessageStore(
         db=db,
         broadcast=_broadcast,
@@ -464,8 +479,16 @@ async def admin_delete_user(user_id: str, admin: dict = Depends(get_current_admi
 # Radios
 # --------------------------------------------------------------------------- #
 @api_router.get("/radios")
-async def list_radios(group_id: Optional[str] = None, _: dict = Depends(get_current_user)):
-    q = {"group_id": group_id} if group_id else {}
+async def list_radios(
+    group_id: Optional[str] = None,
+    channel: Optional[int] = None,
+    _: dict = Depends(get_current_user),
+):
+    q: dict = {}
+    if group_id:
+        q["group_id"] = group_id
+    if channel:
+        q["last_channel"] = channel
     cursor = db.radios.find(q, {"_id": 0}).sort("last_seen", -1)
     return await cursor.to_list(500)
 
@@ -527,6 +550,7 @@ async def inject(payload: InjectPayload, _: dict = Depends(get_current_user)):
         "rssi": payload.rssi,
         "group_id": payload.group_id,
         "talkgroup_id": payload.talkgroup_id,
+        "channel": payload.channel or 1,
     }
     await record_packet(packet)
     return {"ok": True, "id": packet["id"]}
@@ -563,6 +587,23 @@ async def inject_raw(payload: InjectRawPayload, _: dict = Depends(get_current_us
 @api_router.get("/repeaters")
 async def list_repeaters(_: dict = Depends(get_current_user)):
     return hb_master.snapshot()["sessions"] if hb_master else []
+
+
+# --------------------------------------------------------------------------- #
+# Channels (timeslots)
+# --------------------------------------------------------------------------- #
+@api_router.get("/channels")
+async def api_list_channels(_: dict = Depends(get_current_user)):
+    return await channel_store.list()
+
+
+@api_router.patch("/channels/{slot}")
+async def api_update_channel(slot: int, body: ChannelUpdate, _: dict = Depends(get_current_admin)):
+    if slot not in (1, 2):
+        raise HTTPException(status_code=400, detail="slot must be 1 or 2")
+    ch = await channel_store.update(slot, body.model_dump(exclude_unset=True))
+    await _broadcast({"type": "channels_changed"})
+    return ch
 
 
 # --------------------------------------------------------------------------- #

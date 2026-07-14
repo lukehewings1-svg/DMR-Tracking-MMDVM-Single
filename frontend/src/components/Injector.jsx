@@ -57,6 +57,7 @@ function jitter(v, r = 0.02) {
 export function Injector({ onSent }) {
   const [running, setRunning] = useState(false);
   const [rate, setRate] = useState(2000);
+  const [channel, setChannel] = useState(1);
   const stateRef = useRef(MOCK_RADIOS.map((r) => ({ ...r })));
 
   useEffect(() => {
@@ -77,6 +78,7 @@ export function Injector({ onSent }) {
           speed: Number((10 + Math.random() * 60).toFixed(1)),
           heading: Math.round(Math.random() * 359),
           rssi: -60 - Math.round(Math.random() * 40),
+          channel,
         });
         onSent?.();
       } catch {
@@ -84,7 +86,7 @@ export function Injector({ onSent }) {
       }
     }, rate);
     return () => clearInterval(id);
-  }, [running, rate, onSent]);
+  }, [running, rate, channel, onSent]);
 
   const singleShot = async () => {
     const radio = stateRef.current[Math.floor(Math.random() * stateRef.current.length)];
@@ -99,9 +101,10 @@ export function Injector({ onSent }) {
       speed: Number((10 + Math.random() * 60).toFixed(1)),
       heading: Math.round(Math.random() * 359),
       rssi: -60 - Math.round(Math.random() * 40),
+      channel,
     });
     onSent?.();
-    toast.success(`Injected ${radio.callsign}`);
+    toast.success(`Injected ${radio.callsign} on CH${channel}`);
   };
 
   const sendRaw = async (sample) => {
@@ -164,6 +167,18 @@ export function Injector({ onSent }) {
             <option value={1000}>1s</option>
             <option value={2000}>2s</option>
             <option value={5000}>5s</option>
+          </select>
+        </div>
+        <div className="flex items-center gap-2 mono text-[10px] text-neutral-500">
+          <span>CH</span>
+          <select
+            data-testid="injector-channel"
+            value={channel}
+            onChange={(e) => setChannel(Number(e.target.value))}
+            className="border border-[#2a2a2a] bg-black px-1 py-0.5 text-neutral-200 outline-none"
+          >
+            <option value={1}>CH 1 (TS1)</option>
+            <option value={2}>CH 2 (TS2)</option>
           </select>
         </div>
       </div>

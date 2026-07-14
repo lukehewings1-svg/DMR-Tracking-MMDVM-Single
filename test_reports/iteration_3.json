@@ -1,0 +1,42 @@
+{
+  "summary": "Iteration 3: Unified-channel (timeslot) feature testing. Backend: 35 passed / 1 documented skip (36 total). New test_channels.py covers GET /api/channels shape, PATCH admin/non-admin/invalid-slot, /api/inject with channel, /api/radios?channel=1|2 filter, last_channel persistence + update, positions.channel field, and status.listener.stats.voice_relayed=0 (no MMDVMs in preview). All prior 28 v1.1/v1.2 tests still pass. Frontend: verified login -> dashboard, CHANNELS (TIMESLOTS) panel with ALL/CH1/CH2 chips + admin edit gears, injector CH dropdown injects on CH2 and roster row shows CH2 badge, CH2 filter narrows roster to 2 CH2-only radios, ALL restores 9 rows, admin rename updates chip label to 'Ops Net' with 'Channel renamed' toast (WS channels_changed broadcast working - no reload needed), channel+group filter intersects correctly.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "GET /api/channels", "issue": "channel_store returned via db.channels.find().to_list(10) hardcoded upper bound; harmless (only 2 slots) but non-obvious. Consider to_list(None) or explicit limit=2."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "ChannelEditModal (ChannelFilter.jsx)", "issue": "The uncontrolled input uses defaultValue={channel?.name}; when the modal re-opens for the SAME channel after a rename, the input still shows the old defaultValue until the Dialog remounts. Not blocking - Save falls back to channel.name if input untouched. Consider keying <input> by channel.slot or making it fully controlled.", "selector": "[data-testid='channel-edit-name']", "priority": "LOW"},
+      {"component": "MessagingPanel.jsx (~line 116)", "issue": "(Carried over from iter2) React hydration warning: '<span> cannot be a child of <option>'. Non-blocking.", "selector": "[data-testid='msg-group-select'] option", "priority": "LOW"}
+    ],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/backend_test.py",
+    "/app/backend/tests/test_v12_features.py",
+    "/app/backend/tests/test_channels.py",
+    "/app/test_reports/pytest/pytest_iter3.xml"
+  ],
+  "action_items": [
+    "(Optional) Fix ChannelEditModal to use controlled inputs keyed on channel.slot so pre-fill reflects latest name after subsequent renames.",
+    "(Optional) Prior-iteration open items still valid: <span> in <option> hydration warning; DialogDescription/aria-describedby on some Radix modals; add talkgroup_id to InjectPayload for testability."
+  ],
+  "critical_code_review_comments": [
+    "dmr_ingest.py::VOICE_SLOT/DATA_SLOT env vars still imported but never used in the unified-channel logic (relay is unconditional). Docstring at file top still says 'If the frame is on the VOICE_SLOT ... relay it' which is now stale - both slots relay. Cleanup for clarity.",
+    "channels.py::ChannelStore.update ignores unknown keys silently. Fine, but empty string for name would still be persisted; consider min_length validation at the Pydantic layer (ChannelUpdate.name has max_length=48 but no min_length).",
+    "server.py record_packet writes last_channel = packet.get('channel') or 1 - meaning a legacy radio (no last_channel) will be treated as CH1 on next update; but /radios?channel=1 query on the DB still requires the field to exist. That's the documented behavior per the review request (old radios excluded from ?channel filter by design). OK.",
+    "ChannelFilter Chip button uses inline style backgroundColor; no aria-pressed for active state. Minor a11y.",
+    "GET /api/channels response never limits fields for size; fine since only 2 docs."
+  ],
+  "updated_files": ["/app/backend/tests/test_channels.py"],
+  "success_rate": {"backend": "100% (35/35, 1 documented skip)", "frontend": "100% of channel-feature flows"},
+  "test_credentials": "admin@dmrtracker.app / admin123 (from /app/memory/test_credentials.md)",
+  "seed_data_creation": "test_channels.py creates two ephemeral radios (dmr_id ~6210000+) and deletes them; renames slot=1 during test and restores name to 'Channel 1'. Frontend test also renamed CH1 to 'Ops Net' then restored to 'Channel 1'.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "New pytest file /app/backend/tests/test_channels.py (11 tests). All prior test files unchanged and still passing. Real MMDVM UDP path (voice frame relay) cannot be exercised in preview - verified only via unit assertion that voice_relayed counter exists and is 0. The channels collection is seeded on startup (ChannelStore.seed_defaults) and slot uniqueness index enforced.",
+  "rca of the issue": "N/A - all requested unified-channel features (backend + frontend) verified end-to-end."
+}

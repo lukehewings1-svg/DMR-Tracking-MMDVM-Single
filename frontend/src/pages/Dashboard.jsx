@@ -9,6 +9,7 @@ import { ParserStatus } from "@/components/ParserStatus";
 import { RadioDetailModal } from "@/components/RadioDetailModal";
 import { GeofencePanel, AlertsPanel } from "@/components/GeofencePanel";
 import { GroupsPanel } from "@/components/GroupsPanel";
+import { ChannelFilter } from "@/components/ChannelFilter";
 import { MessagingPanel } from "@/components/MessagingPanel";
 import { RepeatersPanel } from "@/components/RepeatersPanel";
 import { EmergencyBanner } from "@/components/EmergencyBanner";
@@ -27,6 +28,7 @@ export default function Dashboard() {
     geofences,
     alerts,
     groups,
+    channels,
     messages,
     repeaters,
     emergencies,
@@ -41,14 +43,18 @@ export default function Dashboard() {
   const [selectedId, setSelectedId] = useState(null);
   const [detailId, setDetailId] = useState(null);
   const [groupFilter, setGroupFilter] = useState(null);
+  const [channelFilter, setChannelFilter] = useState(null);
   const [rightTab, setRightTab] = useState("ops"); // ops | msg
 
   const isAdmin = user?.role === "admin";
 
-  const filteredRadios = useMemo(
-    () => (groupFilter ? radios.filter((r) => r.group_id === groupFilter) : radios),
-    [radios, groupFilter]
-  );
+  const filteredRadios = useMemo(() => {
+    let result = radios;
+    if (groupFilter) result = result.filter((r) => r.group_id === groupFilter);
+    if (channelFilter)
+      result = result.filter((r) => (r.last_channel || 1) === channelFilter);
+    return result;
+  }, [radios, groupFilter, channelFilter]);
   const detailRadio = radios.find((r) => r.dmr_id === detailId);
 
   const openDetail = (id) => setDetailId(id);
@@ -173,6 +179,12 @@ export default function Dashboard() {
 
           {rightTab === "ops" ? (
             <div className="flex-1 overflow-y-auto">
+              <ChannelFilter
+                channels={channels}
+                filter={channelFilter}
+                onFilter={setChannelFilter}
+                onChanged={refreshAll}
+              />
               <GroupsPanel
                 groups={groups}
                 filter={groupFilter}

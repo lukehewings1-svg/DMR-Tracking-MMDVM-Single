@@ -147,30 +147,34 @@ class HBMaster(asyncio.DatagramProtocol):
             if not is_private:
                 session.last_talkgroup = dst_id
 
-        # ---- Voice slot: cross-repeater relay ---- #
-        if slot == VOICE_SLOT:
-            relayed = 0
-            for other_id, other in self.sessions.items():
-                if other_id == rpt_id or not other.authenticated:
-                    continue
-                self._send(data, other.address)
-                other.packets_relayed_out += 1
-                relayed += 1
-            self.stats["voice_relayed"] += relayed
-            await self.on_voice(
-                {
-                    "src_dmr_id": src_id,
-                    "dst_id": dst_id,
-                    "is_private": is_private,
-                    "talkgroup_id": None if is_private else dst_id,
-                    "repeater_id": rpt_id,
-                    "stream_id": stream_id,
-                    "relayed_to": relayed,
-                }
-            )
-            return
+        # ---- Cross-repeater relay (BOTH slots, all frames) ---------------- #
+        # In the unified-channel model each timeslot is a full channel carrying
+        # both voice and data. Voice frames are opaque to the parsers below and
+        # simply pass through; data frames are also relayed so text messages
+        # reach radios attached to other MMDVMs.
+        relayed = 0
+        for other_id, other in self.sessions.items():
+            if other_id == rpt_id or not other.authenticated:
+                continue
+            self._send(data, other.address)
+            other.packets_relayed_out += 1
+            relayed += 1
+        self.stats["voice_relayed"] += relayed
+        await self.on_voice(
+            {
+                "src_dmr_id": src_id,
+                "dst_id": dst_id,
+                "is_private": is_private,
+                "talkgroup_id": None if is_private else dst_id,
+                "repeater_id": rpt_id,
+                "stream_id": stream_id,
+                "slot": slot,
+                "channel": slot,
+                "relayed_to": relayed,
+            }
+        )
 
-        # ---- Data slot: parse Emergency alarm first, then GPS, then SMS ---- #
+        # ---- Data-payload extraction (runs regardless of slot) ------------ #
         buffer = None
         if session is not None:
             buffer = session.streams.setdefault(stream_id, bytearray())
@@ -188,12 +192,11 @@ class HBMaster(asyncio.DatagramProtocol):
                     "is_private": is_private,
                     "talkgroup_id": None if is_private else dst_id,
                     "repeater_id": rpt_id,
+                    "channel": slot,
                     "signature": emer["signature"],
                     "hex_preview": payload[:24].hex(),
                 }
             )
-            # don't return - still try to extract a GPS fix from the same
-            # emergency burst, since many radios embed one.
 
         gps = parse_gps_payload(bytes(buffer)) if buffer else parse_gps_payload(payload)
         if gps:
@@ -206,6 +209,7 @@ class HBMaster(asyncio.DatagramProtocol):
                 "dst_id": dst_id,
                 "stream_id": stream_id,
                 "slot": slot,
+                "channel": slot,
                 "is_private": is_private,
                 "talkgroup_id": None if is_private else dst_id,
                 "format": gps["format"],
@@ -235,6 +239,7 @@ class HBMaster(asyncio.DatagramProtocol):
                     "is_private": is_private,
                     "talkgroup_id": None if is_private else dst_id,
                     "repeater_id": rpt_id,
+                    "channel": slot,
                 }
             )
 

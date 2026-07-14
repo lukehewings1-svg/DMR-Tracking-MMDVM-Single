@@ -124,15 +124,19 @@ manual-install / per-brand programming.
 ```
 
 * Every radio's GPS is decoded on-server and plotted on OpenStreetMap.
-* One DMR **time slot** carries **data** (GPS + text messaging).
-* The other **time slot** carries **voice**, and the server relays it across
-  every MMDVM so all radios on the selected talkgroup hear each other even if
-  they're miles apart.
+* **Each DMR timeslot is a full independent channel** carrying voice + GPS +
+  SMS + emergencies. So a single MMDVM carries **two channels at once** (one
+  per timeslot).
+* Voice frames on both timeslots are relayed across every connected MMDVM,
+  turning the whole set into a distributed simulcast for radios that select
+  that talkgroup.
 * Emergency button presses trigger visual + audible alarms in the app.
 * Text messages (DMR SMS) can be sent from the dashboard to individual radios
   or an entire group.
 * Groups (Medical, Security, Ops…) map to DMR talkgroup IDs and let you filter
   the map and roster.
+* The dashboard's **Channel filter** lets you show radios on Channel 1 only,
+  Channel 2 only, or both. Channels are renameable by an admin.
 
 ---
 
@@ -217,7 +221,9 @@ HB_BIND_HOST="0.0.0.0"
 HB_BIND_PORT="62031"
 HB_PASSWORD="PASSWORD"          # match this in each MMDVMHost DMR-Network config
 
-# Slot layout - flip to VOICE_SLOT=1, DATA_SLOT=2 if you prefer TS1 for voice
+# Slot layout - each timeslot is a full independent channel carrying voice
+# + GPS + SMS + emergencies. Voice frames on both slots are relayed opaquely
+# across every connected MMDVM.
 VOICE_SLOT="2"
 DATA_SLOT="1"
 

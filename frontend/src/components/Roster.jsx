@@ -105,6 +105,14 @@ export function Roster({ radios, selectedId, onSelect, consumeFlash, onOpenDetai
                   </div>
                   <div className="mono text-[10px] text-neutral-500 truncate">
                     ID {r.dmr_id} · {r.last_format || "?"}
+                    {r.last_channel && (
+                      <span
+                        className="ml-1 border-l border-[#2a2a2a] pl-1 text-neutral-400"
+                        title={`Timeslot ${r.last_channel}`}
+                      >
+                        CH{r.last_channel}
+                      </span>
+                    )}
                     {grp && (
                       <span
                         className="ml-1 border-l border-[#2a2a2a] pl-1"

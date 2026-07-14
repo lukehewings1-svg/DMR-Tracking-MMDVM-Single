@@ -7,6 +7,7 @@ import {
   listAlerts,
   clearAlerts as clearAlertsApi,
   listGroups,
+  listChannels,
   listMessages,
   listRepeaters,
   listEmergencies,
@@ -22,6 +23,7 @@ export function useLiveData() {
   const [geofences, setGeofences] = useState([]);
   const [alerts, setAlerts] = useState([]);
   const [groups, setGroups] = useState([]);
+  const [channels, setChannels] = useState([]);
   const [messages, setMessages] = useState([]);
   const [repeaters, setRepeaters] = useState([]);
   const [emergencies, setEmergencies] = useState([]);
@@ -33,13 +35,14 @@ export function useLiveData() {
 
   const refreshAll = useCallback(async () => {
     try {
-      const [r, p, s, g, a, gs, ms, rp, em] = await Promise.all([
+      const [r, p, s, g, a, gs, cs, ms, rp, em] = await Promise.all([
         fetchRadios(),
         fetchPackets(200),
         fetchStatus(),
         listGeofences(),
         listAlerts(100),
         listGroups(),
+        listChannels(),
         listMessages(200),
         listRepeaters(),
         listEmergencies("active"),
@@ -50,6 +53,7 @@ export function useLiveData() {
       setGeofences(g);
       setAlerts(a);
       setGroups(gs);
+      setChannels(cs);
       setMessages(ms);
       setRepeaters(rp);
       setEmergencies(em);
@@ -76,6 +80,7 @@ export function useLiveData() {
         icon: prev[idx]?.icon || "Radio",
         color: prev[idx]?.color || "#39ff14",
         group_id: packet.group_id ?? prev[idx]?.group_id ?? null,
+        last_channel: packet.channel ?? prev[idx]?.last_channel ?? 1,
         last_lat: packet.lat,
         last_lon: packet.lon,
         last_seen: packet.timestamp,
@@ -185,6 +190,7 @@ export function useLiveData() {
             else if (msg.type === "message") applyMessage(msg.message);
             else if (msg.type === "voice_activity") setVoiceActivity(msg.activity || []);
             else if (msg.type === "groups_changed") listGroups().then(setGroups);
+            else if (msg.type === "channels_changed") listChannels().then(setChannels);
           } catch {
             /* noop */
           }
@@ -215,6 +221,7 @@ export function useLiveData() {
     geofences,
     alerts,
     groups,
+    channels,
     messages,
     repeaters,
     emergencies,

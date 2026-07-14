@@ -21,9 +21,18 @@ export const wsUrl = () => {
   return url.toString();
 };
 
-// ---- Radios / positions / packets ----
-export const fetchRadios = (groupId) =>
-  api.get("/radios", { params: groupId ? { group_id: groupId } : {} }).then((r) => r.data);
+// --------- Channels ---------
+export const listChannels = () => api.get("/channels").then((r) => r.data);
+export const updateChannel = (slot, body) =>
+  api.patch(`/channels/${slot}`, body).then((r) => r.data);
+
+// --------- Radios / positions / packets ----------
+export const fetchRadios = (opts = {}) => {
+  const params = {};
+  if (opts.groupId) params.group_id = opts.groupId;
+  if (opts.channel) params.channel = opts.channel;
+  return api.get("/radios", { params }).then((r) => r.data);
+};
 export const fetchStatus = () => api.get("/status").then((r) => r.data);
 export const fetchPackets = (limit = 200) =>
   api.get(`/packets?limit=${limit}`).then((r) => r.data);
