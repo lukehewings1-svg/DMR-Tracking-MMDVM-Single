@@ -33,3 +33,10 @@ Iteration 1: 14/14 backend tests pass, all frontend flows validated. Iteration 2
 - Ship as v1.2 release; ask user for a real MMDVM connection test to validate the voice bridge end-to-end.
 - Optional: Motorola SMS PDU support if user brings a MOTOTRBO into the net.
 - Optional: PWA install + browser push notifications for emergencies.
+
+## v1.4 (Feb 2026): Multi-channel routing + Dispatcher ACL
+- Channels are now first-class named entities with uuid ids. Admin can create arbitrary channels beyond the two DMR timeslots via POST /api/channels; slot-1/slot-2 remain as protected built-ins.
+- Per-MMDVM slot mapping: PUT /api/repeater-configs/{repeater_id} binds each MMDVM's TS1 and TS2 to any channel. HBMaster resolves the channel per frame, relays voice ONLY to MMDVMs that carry the same channel, and rewrites the DMRD slot bit when the target MMDVM has the channel on the other timeslot.
+- Dispatcher ACL: user doc gains allowed_group_ids: List[str]. Non-admin with a non-empty list only sees radios in those groups and can only send messages to those groups. Enforcement in /api/radios and /api/messages. Admin sets via POST /api/admin/users/{id}/groups.
+- Frontend additions: RepeaterConfigPanel (admin-only) in Ops tab, ChannelFilter updated for id-based channels, UserGroupsModal per user row in AdminUsers page.
+- Test status: iteration_4 = 52/52 backend + 100% frontend flows, 0 issues at any priority.
