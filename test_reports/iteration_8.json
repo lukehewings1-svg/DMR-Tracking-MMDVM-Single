@@ -1,0 +1,32 @@
+{
+  "summary": "Iteration 8 (event overlays). 16/16 backend pytest cases pass end-to-end (auth/RBAC, CRUD, shapes with unknown-type filtering, image upload+serve, patch, delete-file, cascade file cleanup, private WS overlay_upserted/overlay_removed, public WS active-only fanout with deactivate->overlay_removed, snapshot active-only, regression on existing endpoints). Frontend Playwright verified admin login, OverlayManagerPanel presence in Ops sidebar, global toggle-overlays label reflects on/off + active count, overlay create->row immediately in editing mode (cyan left border), leaflet-geoman toolbar mounts on the map, per-row toggle-active/edit/rename/delete/upload data-testids all present and functional, chevron expands to reveal upload button, delete removes row after confirm. SituationalView (unauthenticated public token) renders active overlay shapes on the map and situational-toggle-overlays toggles them off/on.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration8_overlays.py",
+    "/app/test_reports/pytest/iter8.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py:1067 uses a hard-coded absolute path '/app/backend/uploads/overlays' for _UPLOADS_DIR. It matches ROOT_DIR but is not derived from it — if the app is ever relocated the uploads directory drifts from the URL prefix. Consider ROOT_DIR / 'uploads' / 'overlays'. Non-blocking.",
+    "server.py overlays_add_image: file.read() loads the full body in memory before size check. If a client uploads a 500 MB file it will consume 500 MB of RAM before the 413 fires. Consider streaming or checking Content-Length first. Non-blocking for internal ops but worth noting.",
+    "overlays.py.replace_shapes: shape 'color' is not validated (any string accepted). Pydantic model OverlayShape also accepts arbitrary strings for color. Low priority — geoman-generated colours are trusted.",
+    "OverlayManagerPanel expands each overlay via the chevron button which shares a bare <button> without a data-testid; not ideal for automation but the requested overlay-upload-<id> testid inside is reachable after clicking. Minor.",
+    "Static mount /api/uploads is intentionally unauthenticated per spec (public snapshot needs to fetch overlay images). Confirmed no other files leak because mount root is /app/backend/uploads and only overlays/ subdir is used."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "100% (16/16)", "frontend": "100% (all requested dashboard + situational overlay flows verified)"},
+  "test_credentials": "admin@dmrtracker.app / admin123",
+  "seed_data_creation": "Backend tests create their own TEST_ prefixed overlay sets, one situational token, and a TEST_ov_user_* account, all cleaned up in fixtures/teardown. Playwright test creates one overlay in the UI and deletes it via the delete button before finishing.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Run pytest with `pytest backend/tests/test_iteration8_overlays.py -o addopts=` (project's pytest.ini enables xdist loadscope which conflicts). Requires websocket-client and requests. Public /api/uploads is a StaticFiles mount with no auth by design. The already-seeded active overlay 'HalloweenRun2026' (with an 'Aid Station 1' marker near lat 40,-105) is left in place — do NOT delete it unless your test recreates it.",
+  "rca of the issue": "No issues found this iteration."
+}

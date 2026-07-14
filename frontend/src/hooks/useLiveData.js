@@ -29,6 +29,7 @@ export function useLiveData() {
   const [emergencies, setEmergencies] = useState([]);
   const [voiceActivity, setVoiceActivity] = useState([]);
   const [liveLogEntry, setLiveLogEntry] = useState(null);
+  const [lastOverlayEvent, setLastOverlayEvent] = useState(null);
   const [connected, setConnected] = useState(false);
   const [lastEventAt, setLastEventAt] = useState(null);
   const flashedRef = useRef(new Set());
@@ -194,6 +195,9 @@ export function useLiveData() {
             else if (msg.type === "shift_log_cleared") setLiveLogEntry(null);
             else if (msg.type === "groups_changed") listGroups().then(setGroups);
             else if (msg.type === "channels_changed") listChannels().then(setChannels);
+            else if (msg.type === "overlay_upserted" || msg.type === "overlay_removed") {
+              setLastOverlayEvent({ ...msg, _t: Date.now() });
+            }
           } catch {
             /* noop */
           }
@@ -230,6 +234,7 @@ export function useLiveData() {
     emergencies,
     voiceActivity,
     liveLogEntry,
+    lastOverlayEvent,
     connected,
     lastEventAt,
     refreshAll,

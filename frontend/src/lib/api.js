@@ -139,6 +139,35 @@ export const situationalWsUrl = (token) => {
   return url.toString();
 };
 
+// ---- Event overlays ----
+export const listOverlays = (activeOnly = false) =>
+  api
+    .get(`/overlays${activeOnly ? "?active=true" : ""}`)
+    .then((r) => r.data);
+export const createOverlay = (name) =>
+  api.post("/overlays", { name }).then((r) => r.data);
+export const updateOverlay = (id, patch) =>
+  api.patch(`/overlays/${id}`, patch).then((r) => r.data);
+export const deleteOverlay = (id) =>
+  api.delete(`/overlays/${id}`).then((r) => r.data);
+export const replaceOverlayShapes = (id, shapes) =>
+  api.put(`/overlays/${id}/shapes`, { shapes }).then((r) => r.data);
+export const uploadOverlayImage = (id, form) =>
+  api
+    .post(`/overlays/${id}/images`, form, {
+      headers: { "Content-Type": "multipart/form-data" },
+    })
+    .then((r) => r.data);
+export const updateOverlayImage = (id, imageId, patch) =>
+  api.patch(`/overlays/${id}/images/${imageId}`, patch).then((r) => r.data);
+export const deleteOverlayImage = (id, imageId) =>
+  api.delete(`/overlays/${id}/images/${imageId}`).then((r) => r.data);
+export const uploadUrl = (relativePath) => {
+  if (!relativePath) return "";
+  if (relativePath.startsWith("http")) return relativePath;
+  return `${BACKEND_URL}${relativePath}`;
+};
+
 export function apiErrorMessage(err) {
   const detail = err?.response?.data?.detail;
   if (!detail) return err.message || "Something went wrong";

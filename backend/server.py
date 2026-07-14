@@ -12,8 +12,9 @@ from pathlib import Path
 from typing import Deque, List, Optional
 
 from dotenv import load_dotenv
-from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, FastAPI, File, Form, HTTPException, Request, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.responses import Response
+from fastapi.staticfiles import StaticFiles
 from motor.motor_asyncio import AsyncIOMotorClient
 from pydantic import BaseModel, ConfigDict, Field
 from starlette.middleware.cors import CORSMiddleware
@@ -37,6 +38,7 @@ from geofence import GeofenceEngine
 from groups import GroupStore
 from messaging import MessageStore
 from shift_log import ShiftLogStore, EVENT_TYPES
+from overlays import OverlayStore
 from situational import (
     SituationalTokenStore,
     public_emergency_projection,
@@ -78,6 +80,7 @@ channel_store: Optional[ChannelStore] = None
 repeater_config_store: Optional[RepeaterConfigStore] = None
 message_store: Optional[MessageStore] = None
 shift_log: Optional[ShiftLogStore] = None
+overlay_store: Optional[OverlayStore] = None
 situational_store: Optional[SituationalTokenStore] = None
 voice_gateway = VoiceGateway()
 
@@ -191,6 +194,35 @@ class SituationalTokenCreate(BaseModel):
     expires_at: Optional[str] = None  # ISO 8601, optional
 
 
+class OverlayCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=64)
+
+
+class OverlayUpdate(BaseModel):
+    name: Optional[str] = Field(default=None, min_length=1, max_length=64)
+    active: Optional[bool] = None
+
+
+class OverlayShape(BaseModel):
+    id: Optional[str] = None
+    type: str
+    name: Optional[str] = ""
+    description: Optional[str] = ""
+    color: Optional[str] = "#00f0ff"
+    geometry: dict = Field(default_factory=dict)
+    style: dict = Field(default_factory=dict)
+
+
+class OverlayShapesReplace(BaseModel):
+    shapes: list[OverlayShape]
+
+
+class OverlayImageUpdate(BaseModel):
+    bounds: Optional[list] = None  # [[sw_lat, sw_lng], [ne_lat, ne_lng]]
+    opacity: Optional[float] = None
+    name: Optional[str] = None
+
+
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -250,6 +282,16 @@ async def _broadcast_public(message: dict) -> None:
         }
     elif mtype == "clear":
         public_msg = {"type": "clear"}
+    elif mtype == "overlay_upserted":
+        overlay = message.get("overlay") or {}
+        # Only broadcast active overlays to public viewers; on deactivation we
+        # send an overlay_removed so viewers can drop it locally.
+        if overlay.get("active"):
+            public_msg = {"type": "overlay_upserted", "overlay": overlay}
+        else:
+            public_msg = {"type": "overlay_removed", "overlay_id": overlay.get("id")}
+    elif mtype == "overlay_removed":
+        public_msg = {"type": "overlay_removed", "overlay_id": message.get("overlay_id")}
     else:
         return
 
@@ -442,7 +484,7 @@ async def send_dmrd_broadcast(frame: bytes) -> int:
 # --------------------------------------------------------------------------- #
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global hb_master, hb_transport, geofence_engine, group_store, channel_store, repeater_config_store, message_store, shift_log, situational_store
+    global hb_master, hb_transport, geofence_engine, group_store, channel_store, repeater_config_store, message_store, shift_log, overlay_store, situational_store
     await auth.ensure_indexes()
     await auth.seed_admin()
     geofence_engine = GeofenceEngine(db, _broadcast)
@@ -466,6 +508,8 @@ async def lifespan(app: FastAPI):
     await shift_log.ensure_indexes()
     situational_store = SituationalTokenStore(db)
     await situational_store.ensure_indexes()
+    overlay_store = OverlayStore(db)
+    await overlay_store.ensure_indexes()
     try:
         hb_transport, hb_master = await start_hb_master(
             HB_BIND_HOST,
@@ -1016,6 +1060,147 @@ async def api_shift_log_clear(_: dict = Depends(get_current_admin)):
 
 
 # --------------------------------------------------------------------------- #
+# Event overlays (drawn shapes + image overlays for event coverage)
+# --------------------------------------------------------------------------- #
+_UPLOADS_DIR = Path("/app/backend/uploads/overlays")
+_UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
+_ALLOWED_IMAGE_EXT = {"png", "jpg", "jpeg", "webp", "gif"}
+
+
+@api_router.get("/overlays")
+async def overlays_list(active: Optional[bool] = None, _: dict = Depends(get_current_user)):
+    only_active = active is True
+    return await overlay_store.list(only_active=only_active)
+
+
+@api_router.post("/overlays")
+async def overlays_create(body: OverlayCreate, admin: dict = Depends(get_current_admin)):
+    doc = await overlay_store.create(name=body.name, created_by=admin["email"])
+    await _broadcast({"type": "overlay_upserted", "overlay": doc})
+    return doc
+
+
+@api_router.get("/overlays/{overlay_id}")
+async def overlays_get(overlay_id: str, _: dict = Depends(get_current_user)):
+    doc = await overlay_store.get(overlay_id)
+    if not doc:
+        raise HTTPException(status_code=404, detail="Overlay not found")
+    return doc
+
+
+@api_router.patch("/overlays/{overlay_id}")
+async def overlays_update(overlay_id: str, body: OverlayUpdate, _: dict = Depends(get_current_admin)):
+    doc = await overlay_store.get(overlay_id)
+    if not doc:
+        raise HTTPException(status_code=404, detail="Overlay not found")
+    updated = await overlay_store.update(overlay_id, body.model_dump(exclude_none=True))
+    await _broadcast({"type": "overlay_upserted", "overlay": updated})
+    return updated
+
+
+@api_router.delete("/overlays/{overlay_id}")
+async def overlays_delete(overlay_id: str, _: dict = Depends(get_current_admin)):
+    doc = await overlay_store.delete(overlay_id)
+    if not doc:
+        raise HTTPException(status_code=404, detail="Overlay not found")
+    # Best-effort: delete any uploaded image files that lived only in this set.
+    for img in doc.get("images", []) or []:
+        try:
+            url = img.get("url", "")
+            if url.startswith("/api/uploads/overlays/"):
+                fname = url.rsplit("/", 1)[-1]
+                (Path(_UPLOADS_DIR) / fname).unlink(missing_ok=True)
+        except Exception:  # noqa: BLE001
+            pass
+    await _broadcast({"type": "overlay_removed", "overlay_id": overlay_id})
+    return {"ok": True}
+
+
+@api_router.put("/overlays/{overlay_id}/shapes")
+async def overlays_replace_shapes(
+    overlay_id: str,
+    body: OverlayShapesReplace,
+    _: dict = Depends(get_current_admin),
+):
+    doc = await overlay_store.get(overlay_id)
+    if not doc:
+        raise HTTPException(status_code=404, detail="Overlay not found")
+    updated = await overlay_store.replace_shapes(overlay_id, [s.model_dump() for s in body.shapes])
+    await _broadcast({"type": "overlay_upserted", "overlay": updated})
+    return updated
+
+
+@api_router.post("/overlays/{overlay_id}/images")
+async def overlays_add_image(
+    overlay_id: str,
+    file: UploadFile = File(...),
+    name: str = Form(""),
+    sw_lat: float = Form(...),
+    sw_lng: float = Form(...),
+    ne_lat: float = Form(...),
+    ne_lng: float = Form(...),
+    opacity: float = Form(0.6),
+    admin: dict = Depends(get_current_admin),
+):
+    doc = await overlay_store.get(overlay_id)
+    if not doc:
+        raise HTTPException(status_code=404, detail="Overlay not found")
+    ext = (file.filename or "").rsplit(".", 1)[-1].lower()
+    if ext not in _ALLOWED_IMAGE_EXT:
+        raise HTTPException(status_code=400, detail=f"Unsupported image type .{ext}")
+    fname = f"{uuid.uuid4().hex}.{ext}"
+    fpath = _UPLOADS_DIR / fname
+    contents = await file.read()
+    if len(contents) > 20 * 1024 * 1024:  # 20 MB cap
+        raise HTTPException(status_code=413, detail="Image too large (max 20 MB)")
+    fpath.write_bytes(contents)
+    url = f"/api/uploads/overlays/{fname}"
+    updated = await overlay_store.add_image(
+        overlay_id,
+        name=name or file.filename or "overlay image",
+        url=url,
+        bounds=[[sw_lat, sw_lng], [ne_lat, ne_lng]],
+        opacity=opacity,
+    )
+    await _broadcast({"type": "overlay_upserted", "overlay": updated})
+    return updated
+
+
+@api_router.patch("/overlays/{overlay_id}/images/{image_id}")
+async def overlays_update_image(
+    overlay_id: str,
+    image_id: str,
+    body: OverlayImageUpdate,
+    _: dict = Depends(get_current_admin),
+):
+    doc = await overlay_store.get(overlay_id)
+    if not doc:
+        raise HTTPException(status_code=404, detail="Overlay not found")
+    updated = await overlay_store.update_image(overlay_id, image_id, body.model_dump(exclude_none=True))
+    await _broadcast({"type": "overlay_upserted", "overlay": updated})
+    return updated
+
+
+@api_router.delete("/overlays/{overlay_id}/images/{image_id}")
+async def overlays_delete_image(overlay_id: str, image_id: str, _: dict = Depends(get_current_admin)):
+    doc = await overlay_store.get(overlay_id)
+    if not doc:
+        raise HTTPException(status_code=404, detail="Overlay not found")
+    img = next((i for i in doc.get("images", []) if i.get("id") == image_id), None)
+    if img:
+        url = img.get("url", "")
+        if url.startswith("/api/uploads/overlays/"):
+            fname = url.rsplit("/", 1)[-1]
+            try:
+                (_UPLOADS_DIR / fname).unlink(missing_ok=True)
+            except Exception:  # noqa: BLE001
+                pass
+    updated = await overlay_store.delete_image(overlay_id, image_id)
+    await _broadcast({"type": "overlay_upserted", "overlay": updated})
+    return updated
+
+
+# --------------------------------------------------------------------------- #
 # Situational awareness (token-locked read-only views)
 # --------------------------------------------------------------------------- #
 @api_router.get("/situational-tokens")
@@ -1048,7 +1233,9 @@ async def sa_snapshot(token: str):
     doc = await situational_store.get_by_token(token)
     if not doc:
         raise HTTPException(status_code=404, detail="Unknown or expired token")
-    return await situational_store.snapshot(doc, db.radios, db.emergencies)
+    snap = await situational_store.snapshot(doc, db.radios, db.emergencies)
+    snap["overlays"] = await overlay_store.list(only_active=True)
+    return snap
 
 
 @api_router.websocket("/situational/{token}/ws")
@@ -1109,6 +1296,12 @@ async def websocket_endpoint(websocket: WebSocket):
 
 
 app.include_router(api_router)
+# Serve uploaded overlay images under /api/uploads/…
+app.mount(
+    "/api/uploads",
+    StaticFiles(directory="/app/backend/uploads", check_dir=False),
+    name="uploads",
+)
 app.add_middleware(
     CORSMiddleware,
     allow_credentials=True,

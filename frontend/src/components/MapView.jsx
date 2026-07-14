@@ -91,6 +91,14 @@ function PanTo({ target }) {
   return null;
 }
 
+function MapReadyEmitter({ onMapReady }) {
+  const map = useMap();
+  useEffect(() => {
+    onMapReady?.(map);
+  }, [map, onMapReady]);
+  return null;
+}
+
 function TrailPolyline({ dmrId, color }) {
   const { data } = useQuery({
     queryKey: ["positions", dmrId],
@@ -108,7 +116,22 @@ function TrailPolyline({ dmrId, color }) {
   );
 }
 
-export function MapView({ radios, selectedId, onSelect, geofences = [], groups = [] }) {
+import { OverlayLayer, OverlayLayerBoundsSync } from "@/components/OverlayLayer";
+import { OverlayEditor } from "@/components/OverlayEditor";
+import { OverlayImageCorners } from "@/components/OverlayImageCorners";
+
+export function MapView({
+  radios,
+  selectedId,
+  onSelect,
+  geofences = [],
+  groups = [],
+  overlays = [],
+  overlaysVisible = true,
+  editingOverlay = null,
+  canEditOverlays = false,
+  onMapReady,
+}) {
   const groupById = new Map(groups.map((g) => [g.id, g]));
   const withPos = radios.filter((r) => r.last_lat != null && r.last_lon != null);
   const center = withPos[0]
@@ -116,6 +139,16 @@ export function MapView({ radios, selectedId, onSelect, geofences = [], groups =
     : [39.5, -98.35];
   const selected = withPos.find((r) => r.dmr_id === selectedId);
   const panTarget = selected && [selected.last_lat, selected.last_lon];
+
+  // Overlays: while an admin is editing a set, the OverlayEditor owns those
+  // shapes visually. So we render *other* active sets via OverlayLayer, but
+  // exclude the one being edited to avoid a double render.
+  const visibleActive = overlaysVisible
+    ? overlays.filter((o) => o.active)
+    : [];
+  const overlaysForLayer = editingOverlay
+    ? visibleActive.filter((o) => o.id !== editingOverlay.id)
+    : visibleActive;
 
   return (
     <div className="relative h-full w-full" data-testid="map-view">
@@ -127,9 +160,23 @@ export function MapView({ radios, selectedId, onSelect, geofences = [], groups =
         zoomControl
         attributionControl
       >
+        <MapReadyEmitter onMapReady={onMapReady} />
         <TileLayer url={DARK_TILES} attribution={ATTRIBUTION} />
         <FitToRadios radios={withPos} />
         <PanTo target={panTarget} />
+
+        {/* Event overlays (shapes + images) */}
+        <OverlayLayerBoundsSync overlays={[...overlaysForLayer, editingOverlay].filter(Boolean)} />
+        {/* image overlays for the set being edited are still rendered normally;
+            the editor only owns the *shape* layers */}
+        {editingOverlay && overlaysVisible && (
+          <OverlayLayer overlays={[{ ...editingOverlay, shapes: [] }]} />
+        )}
+        <OverlayLayer overlays={overlaysForLayer} />
+        <OverlayEditor overlay={editingOverlay} canEdit={canEditOverlays && !!editingOverlay} />
+        {canEditOverlays && editingOverlay && (
+          <OverlayImageCorners overlay={editingOverlay} />
+        )}
 
         {geofences.map((f) => (
           <Circle
@@ -175,6 +222,9 @@ export function MapView({ radios, selectedId, onSelect, geofences = [], groups =
         OSM · CARTO DARK · {withPos.length} contact
         {withPos.length === 1 ? "" : "s"}
         {geofences.length > 0 ? ` · ${geofences.length} fence${geofences.length === 1 ? "" : "s"}` : ""}
+        {visibleActive.length > 0
+          ? ` · ${visibleActive.length} overlay${visibleActive.length === 1 ? "" : "s"}`
+          : ""}
       </div>
     </div>
   );

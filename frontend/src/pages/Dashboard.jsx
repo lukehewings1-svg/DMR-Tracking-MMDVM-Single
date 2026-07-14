@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { TopBar } from "@/components/TopBar";
 import { MapView } from "@/components/MapView";
@@ -15,11 +15,21 @@ import { MessagingPanel } from "@/components/MessagingPanel";
 import { RepeatersPanel } from "@/components/RepeatersPanel";
 import { EmergencyBanner } from "@/components/EmergencyBanner";
 import { ShiftLogPanel } from "@/components/ShiftLogPanel";
+import { OverlayManagerPanel } from "@/components/OverlayManagerPanel";
 import { useLiveData } from "@/hooks/useLiveData";
 import { useAuth } from "@/context/AuthContext";
-import { clearAll } from "@/lib/api";
+import { clearAll, listOverlays } from "@/lib/api";
 import { toast } from "sonner";
-import { LogOut, ShieldCheck, Trash2, BookOpen, MessageSquare, Map as MapIcon, Clock } from "lucide-react";
+import {
+  LogOut,
+  ShieldCheck,
+  Trash2,
+  BookOpen,
+  MessageSquare,
+  Map as MapIcon,
+  Clock,
+  Layers,
+} from "lucide-react";
 
 export default function Dashboard() {
   const { user, signOut } = useAuth();
@@ -36,6 +46,7 @@ export default function Dashboard() {
     emergencies,
     voiceActivity,
     liveLogEntry,
+    lastOverlayEvent,
     connected,
     lastEventAt,
     refreshAll,
@@ -47,7 +58,32 @@ export default function Dashboard() {
   const [detailId, setDetailId] = useState(null);
   const [groupFilter, setGroupFilter] = useState(null);
   const [channelFilter, setChannelFilter] = useState(null);
-  const [rightTab, setRightTab] = useState("ops"); // ops | msg
+  const [rightTab, setRightTab] = useState("ops"); // ops | msg | log
+  const [overlays, setOverlays] = useState([]);
+  const [editingOverlayId, setEditingOverlayId] = useState(null);
+  const [overlaysVisible, setOverlaysVisible] = useState(true);
+  const [mapInstance, setMapInstance] = useState(null);
+
+  const refreshOverlays = async () => {
+    try {
+      const data = await listOverlays();
+      setOverlays(data);
+    } catch {
+      /* noop */
+    }
+  };
+
+  useEffect(() => {
+    refreshOverlays();
+  }, []);
+
+  // React to live overlay upsert/remove pushed from the backend
+  useEffect(() => {
+    if (!lastOverlayEvent) return;
+    refreshOverlays();
+  }, [lastOverlayEvent]);
+
+  const editingOverlay = overlays.find((o) => o.id === editingOverlayId) || null;
 
   const isAdmin = user?.role === "admin";
 
@@ -91,6 +127,24 @@ export default function Dashboard() {
           </span>
         </div>
         <div className="flex items-center gap-2">
+          <button
+            data-testid="toggle-overlays"
+            onClick={() => setOverlaysVisible((v) => !v)}
+            title={overlaysVisible ? "Hide overlays" : "Show overlays"}
+            className={`flex items-center gap-1 border px-2 py-1 mono text-[11px] uppercase tracking-widest ${
+              overlaysVisible
+                ? "border-[#00f0ff] text-[#00f0ff]"
+                : "border-[#2a2a2a] text-neutral-500 hover:text-neutral-300"
+            }`}
+          >
+            <Layers className="h-3 w-3" />
+            Overlays: {overlaysVisible ? "On" : "Off"}
+            {overlays.filter((o) => o.active).length > 0 && overlaysVisible && (
+              <span className="ml-1 text-[9px] text-[#00f0ff]">
+                · {overlays.filter((o) => o.active).length}
+              </span>
+            )}
+          </button>
           <Link
             data-testid="nav-setup-guide"
             to="/setup"
@@ -155,6 +209,11 @@ export default function Dashboard() {
               openDetail(id);
             }}
             geofences={geofences}
+            overlays={overlays}
+            overlaysVisible={overlaysVisible}
+            editingOverlay={editingOverlay}
+            canEditOverlays={isAdmin}
+            onMapReady={setMapInstance}
           />
           <PacketLog packets={packets} />
         </div>
@@ -187,6 +246,14 @@ export default function Dashboard() {
 
           {rightTab === "ops" ? (
             <div className="flex-1 overflow-y-auto">
+              {isAdmin && (
+                <OverlayManagerPanel
+                  editingOverlayId={editingOverlayId}
+                  onEditOverlay={setEditingOverlayId}
+                  currentMap={mapInstance}
+                  onOverlaysChanged={setOverlays}
+                />
+              )}
               <ChannelFilter
                 channels={channels}
                 filter={channelFilter}

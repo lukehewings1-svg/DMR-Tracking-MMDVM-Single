@@ -14,7 +14,8 @@ import {
   situationalWsUrl,
 } from "@/lib/api";
 import { iconFor } from "@/lib/icons";
-import { AlertOctagon, Radio as RadioIcon, ShieldAlert } from "lucide-react";
+import { OverlayLayer } from "@/components/OverlayLayer";
+import { AlertOctagon, Radio as RadioIcon, ShieldAlert, Layers } from "lucide-react";
 
 const DARK_TILES =
   "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png";
@@ -81,6 +82,8 @@ export default function SituationalView() {
   const [view, setView] = useState(null);
   const [radios, setRadios] = useState([]);
   const [emergencies, setEmergencies] = useState([]);
+  const [overlays, setOverlays] = useState([]);
+  const [overlaysVisible, setOverlaysVisible] = useState(true);
   const [error, setError] = useState(null);
   const [connected, setConnected] = useState(false);
   const wsRef = useRef(null);
@@ -105,6 +108,7 @@ export default function SituationalView() {
         setView(snap.view);
         setRadios(snap.radios || []);
         setEmergencies(snap.emergencies || []);
+        setOverlays(snap.overlays || []);
       } catch (e) {
         if (!cancelled) setError(e?.response?.data?.detail || "Unknown or expired link.");
       }
@@ -148,6 +152,19 @@ export default function SituationalView() {
             } else if (msg.type === "clear") {
               setRadios([]);
               setEmergencies([]);
+              setOverlays([]);
+            } else if (msg.type === "overlay_upserted") {
+              setOverlays((prev) => {
+                const idx = prev.findIndex((o) => o.id === msg.overlay.id);
+                if (idx >= 0) {
+                  const next = [...prev];
+                  next[idx] = msg.overlay;
+                  return next;
+                }
+                return [msg.overlay, ...prev];
+              });
+            } else if (msg.type === "overlay_removed") {
+              setOverlays((prev) => prev.filter((o) => o.id !== msg.overlay_id));
             }
           } catch {
             /* noop */
@@ -220,6 +237,21 @@ export default function SituationalView() {
           >
             <AlertOctagon className="h-3 w-3" /> {emergencies.length}
           </span>
+          {overlays.length > 0 && (
+            <button
+              data-testid="situational-toggle-overlays"
+              onClick={() => setOverlaysVisible((v) => !v)}
+              title={overlaysVisible ? "Hide overlays" : "Show overlays"}
+              className={`flex items-center gap-1 border px-1.5 py-0.5 mono text-[10px] uppercase tracking-widest ${
+                overlaysVisible
+                  ? "border-[#00f0ff] text-[#00f0ff]"
+                  : "border-[#2a2a2a] text-neutral-500 hover:text-neutral-300"
+              }`}
+            >
+              <Layers className="h-3 w-3" /> {overlaysVisible ? "On" : "Off"}
+              <span className="text-[9px] opacity-75">· {overlays.length}</span>
+            </button>
+          )}
           <span className="text-[10px] uppercase tracking-widest text-neutral-500">
             view only
           </span>
@@ -244,6 +276,7 @@ export default function SituationalView() {
         >
           <TileLayer url={DARK_TILES} attribution={ATTRIBUTION} />
           <FitToRadios radios={withPos} />
+          {overlaysVisible && <OverlayLayer overlays={overlays} />}
           {withPos.map((r) => (
             <Marker
               key={`m-${r.dmr_id}-${r.icon || "Radio"}-${r.in_emergency ? "e" : "n"}`}
