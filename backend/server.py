@@ -1055,6 +1055,7 @@ async def sa_snapshot(token: str):
 async def sa_websocket(websocket: WebSocket, token: str):
     doc = await situational_store.get_by_token(token)
     if not doc:
+        await websocket.accept()
         await websocket.close(code=4404)
         return
     await websocket.accept()

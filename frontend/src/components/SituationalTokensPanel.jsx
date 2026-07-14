@@ -115,7 +115,7 @@ export function SituationalTokensPanel({ groups }) {
             <option value="">All radios (no group scope)</option>
             {groups.map((g) => (
               <option key={g.id} value={g.id}>
-                {g.name} (TG {g.talkgroup_id})
+                {`${g.name} (TG ${g.talkgroup_id})`}
               </option>
             ))}
           </select>
