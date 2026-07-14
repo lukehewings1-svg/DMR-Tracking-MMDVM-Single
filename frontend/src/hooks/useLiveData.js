@@ -28,6 +28,7 @@ export function useLiveData() {
   const [repeaters, setRepeaters] = useState([]);
   const [emergencies, setEmergencies] = useState([]);
   const [voiceActivity, setVoiceActivity] = useState([]);
+  const [liveLogEntry, setLiveLogEntry] = useState(null);
   const [connected, setConnected] = useState(false);
   const [lastEventAt, setLastEventAt] = useState(null);
   const flashedRef = useRef(new Set());
@@ -189,6 +190,8 @@ export function useLiveData() {
               applyEmergencyCleared(msg.emergency_id, msg.dmr_id);
             else if (msg.type === "message") applyMessage(msg.message);
             else if (msg.type === "voice_activity") setVoiceActivity(msg.activity || []);
+            else if (msg.type === "shift_log") setLiveLogEntry(msg.entry);
+            else if (msg.type === "shift_log_cleared") setLiveLogEntry(null);
             else if (msg.type === "groups_changed") listGroups().then(setGroups);
             else if (msg.type === "channels_changed") listChannels().then(setChannels);
           } catch {
@@ -226,6 +229,7 @@ export function useLiveData() {
     repeaters,
     emergencies,
     voiceActivity,
+    liveLogEntry,
     connected,
     lastEventAt,
     refreshAll,

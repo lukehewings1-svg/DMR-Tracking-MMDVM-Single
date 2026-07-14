@@ -13,6 +13,7 @@ from typing import Deque, List, Optional
 
 from dotenv import load_dotenv
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
+from fastapi.responses import Response
 from motor.motor_asyncio import AsyncIOMotorClient
 from pydantic import BaseModel, ConfigDict, Field
 from starlette.middleware.cors import CORSMiddleware
@@ -35,6 +36,7 @@ from dmr_parsers import parse_gps_payload, parser_names
 from geofence import GeofenceEngine
 from groups import GroupStore
 from messaging import MessageStore
+from shift_log import ShiftLogStore, EVENT_TYPES
 from voice import VoiceGateway
 
 ROOT_DIR = Path(__file__).parent
@@ -67,6 +69,7 @@ group_store: Optional[GroupStore] = None
 channel_store: Optional[ChannelStore] = None
 repeater_config_store: Optional[RepeaterConfigStore] = None
 message_store: Optional[MessageStore] = None
+shift_log: Optional[ShiftLogStore] = None
 voice_gateway = VoiceGateway()
 
 
@@ -178,6 +181,13 @@ def _now_iso() -> str:
 
 
 async def _broadcast(message: dict) -> None:
+    # Auto-log geofence alerts into the shift log (their engine broadcasts them
+    # directly on this channel; we intercept here to persist them).
+    if shift_log and message.get("type") == "alert":
+        try:
+            await shift_log.log_alert(message["alert"])
+        except Exception:  # noqa: BLE001
+            pass
     dead = []
     for ws in list(ws_clients):
         try:
@@ -272,6 +282,8 @@ async def record_packet(packet: dict) -> None:
     packet["callsign"] = callsign
     packet["group_id"] = group_id
     await _broadcast({"type": "packet", "packet": packet})
+    if shift_log:
+        await shift_log.log_position(packet)
     if geofence_engine:
         await geofence_engine.evaluate(packet)
 
@@ -282,7 +294,7 @@ async def on_dmr_sms(inbound: dict) -> None:
     radio = await db.radios.find_one(
         {"dmr_id": inbound["from_dmr_id"]}, {"_id": 0, "callsign": 1}
     )
-    await message_store.record_inbound(
+    msg = await message_store.record_inbound(
         text=inbound["text"],
         from_dmr_id=inbound["from_dmr_id"],
         to_dmr_id=inbound["to_dmr_id"],
@@ -291,6 +303,8 @@ async def on_dmr_sms(inbound: dict) -> None:
         callsign=(radio or {}).get("callsign"),
         repeater_id=inbound.get("repeater_id"),
     )
+    if shift_log:
+        await shift_log.log_message(msg)
 
 
 async def on_voice_activity(evt: dict) -> None:
@@ -305,6 +319,9 @@ async def on_voice_activity(evt: dict) -> None:
         repeater_id=evt["repeater_id"],
     )
     await _broadcast({"type": "voice_activity", "activity": voice_gateway.active_talkgroups()})
+    if shift_log:
+        evt = {**evt, "callsign": (radio or {}).get("callsign")}
+        await shift_log.log_voice(evt)
 
 
 async def on_emergency(evt: dict) -> None:
@@ -340,6 +357,8 @@ async def on_emergency(evt: dict) -> None:
     )
     doc.pop("_id", None)
     await _broadcast({"type": "emergency", "emergency": doc})
+    if shift_log:
+        await shift_log.log_emergency(doc)
 
 
 async def send_dmrd_broadcast(frame: bytes) -> int:
@@ -353,7 +372,7 @@ async def send_dmrd_broadcast(frame: bytes) -> int:
 # --------------------------------------------------------------------------- #
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global hb_master, hb_transport, geofence_engine, group_store, channel_store, repeater_config_store, message_store
+    global hb_master, hb_transport, geofence_engine, group_store, channel_store, repeater_config_store, message_store, shift_log
     await auth.ensure_indexes()
     await auth.seed_admin()
     geofence_engine = GeofenceEngine(db, _broadcast)
@@ -373,6 +392,8 @@ async def lifespan(app: FastAPI):
         data_slot=DATA_SLOT,
     )
     await message_store.ensure_indexes()
+    shift_log = ShiftLogStore(db, _broadcast)
+    await shift_log.ensure_indexes()
     try:
         hb_transport, hb_master = await start_hb_master(
             HB_BIND_HOST,
@@ -737,17 +758,19 @@ async def api_send_message(body: MessageSend, user: dict = Depends(get_current_u
         g = await group_store.get(body.group_id)
         if not g:
             raise HTTPException(status_code=404, detail="Group not found")
-        # Dispatcher ACL: non-admin restricted users can only send to their allowed groups
         allowed = user.get("allowed_group_ids") or []
         if user.get("role") != "admin" and allowed and body.group_id not in allowed:
             raise HTTPException(status_code=403, detail="You do not have access to this group")
         tg = g["talkgroup_id"]
-    return await message_store.send(
+    msg = await message_store.send(
         text=body.text,
         target_dmr_id=body.target_dmr_id,
         talkgroup_id=tg,
         sender_email=user["email"],
     )
+    if shift_log:
+        await shift_log.log_message(msg)
+    return msg
 
 
 @api_router.post("/messages/simulate-inbound")
@@ -795,7 +818,7 @@ async def list_emergencies(status_filter: Optional[str] = "active", limit: int =
 
 
 @api_router.post("/emergencies/{emergency_id}/clear")
-async def clear_emergency(emergency_id: str, _: dict = Depends(get_current_admin)):
+async def clear_emergency(emergency_id: str, admin: dict = Depends(get_current_admin)):
     doc = await db.emergencies.find_one({"id": emergency_id}, {"_id": 0})
     if not doc:
         raise HTTPException(status_code=404, detail="Emergency not found")
@@ -808,6 +831,8 @@ async def clear_emergency(emergency_id: str, _: dict = Depends(get_current_admin
         {"$set": {"in_emergency": False}, "$unset": {"emergency_id": ""}},
     )
     await _broadcast({"type": "emergency_cleared", "emergency_id": emergency_id, "dmr_id": doc["dmr_id"]})
+    if shift_log:
+        await shift_log.log_emergency_cleared(doc["dmr_id"], admin["email"])
     return {"ok": True}
 
 
@@ -853,6 +878,67 @@ async def list_alerts(limit: int = 100, _: dict = Depends(get_current_user)):
 @api_router.delete("/alerts")
 async def clear_alerts(_: dict = Depends(get_current_admin)):
     await geofence_engine.clear_alerts()
+    return {"ok": True}
+
+
+# --------------------------------------------------------------------------- #
+# Shift log
+# --------------------------------------------------------------------------- #
+def _shift_log_group_filter(user: dict) -> Optional[list[str]]:
+    if user.get("role") == "admin":
+        return None
+    allowed = user.get("allowed_group_ids") or []
+    return allowed if allowed else None
+
+
+@api_router.get("/shift-log")
+async def api_shift_log(
+    limit: int = 500,
+    event_type: Optional[str] = None,
+    dmr_id: Optional[int] = None,
+    since: Optional[str] = None,
+    until: Optional[str] = None,
+    user: dict = Depends(get_current_user),
+):
+    if event_type and event_type not in EVENT_TYPES:
+        raise HTTPException(status_code=400, detail="Unknown event_type")
+    return await shift_log.query(
+        limit=limit,
+        event_type=event_type,
+        dmr_id=dmr_id,
+        group_ids=_shift_log_group_filter(user),
+        since=since,
+        until=until,
+    )
+
+
+@api_router.get("/shift-log/export.csv")
+async def api_shift_log_csv(
+    event_type: Optional[str] = None,
+    dmr_id: Optional[int] = None,
+    since: Optional[str] = None,
+    until: Optional[str] = None,
+    user: dict = Depends(get_current_user),
+):
+    csv_text = await shift_log.export_csv(
+        event_type=event_type,
+        dmr_id=dmr_id,
+        group_ids=_shift_log_group_filter(user),
+        since=since,
+        until=until,
+    )
+    filename = f"shift-log-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}.csv"
+    return Response(
+        content=csv_text,
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@api_router.delete("/shift-log")
+async def api_shift_log_clear(_: dict = Depends(get_current_admin)):
+    await shift_log.clear()
+    await _broadcast({"type": "shift_log_cleared"})
     return {"ok": True}
 
 

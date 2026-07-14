@@ -1,0 +1,51 @@
+{
+  "summary": "Iteration 5 shift-log feature tested end-to-end. Backend: 65/66 passed (1 skipped legacy), 1 real bug found: /api/messages/simulate-inbound does NOT invoke shift_log.log_message so message_in entries are never persisted from that endpoint. Frontend: full ShiftLogPanel flow verified as admin - Log tab, filter chips (all/emergency/voice/message_in/message_out/alert/position), Refresh, CSV download (correct headers), admin-only Clear button; live entry list updates after inject + refresh. Regression suite (backend_test.py, test_v12_features.py, test_channels.py, test_iteration4.py) still 100% green.",
+  "backend_issues": {
+    "critical": [
+      {
+        "endpoint": "POST /api/messages/simulate-inbound",
+        "issue": "Bypasses shift_log.log_message hook. server.py::api_simulate_inbound calls message_store.record_inbound directly instead of on_dmr_sms, so no event_type=message_in entry is written to shift_log. Real inbound path via on_dmr_sms is fine; only the simulate endpoint is broken. Fix: after record_inbound, call `if shift_log: await shift_log.log_message(msg)` OR route through on_dmr_sms.",
+        "priority": "HIGH"
+      }
+    ],
+    "minor": [
+      {
+        "endpoint": "GET /api/shift-log (ACL)",
+        "issue": "_shift_log_group_filter returns None when a non-admin has an EMPTY allowed_group_ids list, which then applies no group filter and effectively shows all entries. If the intent is 'no groups -> see only system-wide (group_id=None) entries', return [] instead of None so the $or clause restricts to group_id=None. Matches an existing pattern in /api/radios; either both should be consistent."
+      }
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration5_shift_log.py",
+    "/app/test_reports/pytest/iter5_all.xml"
+  ],
+  "action_items": [
+    "Fix /api/messages/simulate-inbound to write a shift_log message_in entry (call shift_log.log_message after record_inbound, or route through on_dmr_sms).",
+    "(Optional) Decide semantics of empty allowed_group_ids for non-admin on /api/shift-log."
+  ],
+  "critical_code_review_comments": [
+    "shift_log.py::_log excludes _id after insert_one and broadcasts via WS - correct, no ObjectId leak.",
+    "shift_log.py::log_voice de-dupes by stream_id within 30s window - matches spec.",
+    "server.py::api_shift_log_csv sets Content-Type=text/csv + Content-Disposition attachment; filename validated in tests (matches spec header row exactly).",
+    "server.py::_broadcast intercepts type='alert' to log entries (line 186) - geofence alerts get logged even though geofence engine doesn't know about shift_log directly. Clean design.",
+    "ShiftLogPanel.jsx: CSV download uses fetch+blob URL and revokes it after click - correct, avoids memory leak."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration5_shift_log.py"
+  ],
+  "success_rate": {
+    "backend": "98.5% (65/66 executed, 1 legacy skip; the single failure is a real product bug in /api/messages/simulate-inbound)",
+    "frontend": "100% of shift-log flows"
+  },
+  "test_credentials": "admin@dmrtracker.app / admin123",
+  "seed_data_creation": "test_iteration5_shift_log.py creates ephemeral TEST_ users (via /auth/register + admin approve + delete), transient radios in 66xx-69xx range, one TEST_fence_* geofence - all cleaned up in-test. Frontend test injected UI_TEST radio 6555001 which was cleaned up post-test.",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "One backend bug outstanding: /api/messages/simulate-inbound doesn't log to shift_log. Fix is a 2-line insert in server.py::api_simulate_inbound. Run `pytest backend/tests/test_iteration5_shift_log.py -n 0` after fix (pytest.ini defaults to -n 2 loadscope; the shift-log tests intentionally clear the log inside each test so they must run serially with `-n 0` to avoid inter-test races). Otherwise all 13 new tests + 52 regression tests pass. Iteration_4 regression still fully green.",
+  "rca of the issue": "In /app/backend/server.py::api_simulate_inbound (line 776) the endpoint calls message_store.record_inbound directly and returns the msg. It does NOT invoke on_dmr_sms(), and it does NOT call shift_log.log_message(msg). The real ingest path (dmr_ingest -> on_dmr_sms -> shift_log.log_message) is correctly wired at line 306-307, but the developer helper endpoint diverges from it. Reproduction: POST /api/messages/simulate-inbound with valid body -> 200 OK, but GET /api/shift-log?event_type=message_in returns []. Mitigation: replace the return with `msg = await message_store.record_inbound(...); if shift_log: await shift_log.log_message(msg); return msg`, or better refactor to call on_dmr_sms so any future hooks stay consistent."
+}

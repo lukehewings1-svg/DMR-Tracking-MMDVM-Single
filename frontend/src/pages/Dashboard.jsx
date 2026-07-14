@@ -14,11 +14,12 @@ import { RepeaterConfigPanel } from "@/components/RepeaterConfigPanel";
 import { MessagingPanel } from "@/components/MessagingPanel";
 import { RepeatersPanel } from "@/components/RepeatersPanel";
 import { EmergencyBanner } from "@/components/EmergencyBanner";
+import { ShiftLogPanel } from "@/components/ShiftLogPanel";
 import { useLiveData } from "@/hooks/useLiveData";
 import { useAuth } from "@/context/AuthContext";
 import { clearAll } from "@/lib/api";
 import { toast } from "sonner";
-import { LogOut, ShieldCheck, Trash2, BookOpen, MessageSquare, Map as MapIcon } from "lucide-react";
+import { LogOut, ShieldCheck, Trash2, BookOpen, MessageSquare, Map as MapIcon, Clock } from "lucide-react";
 
 export default function Dashboard() {
   const { user, signOut } = useAuth();
@@ -34,6 +35,7 @@ export default function Dashboard() {
     repeaters,
     emergencies,
     voiceActivity,
+    liveLogEntry,
     connected,
     lastEventAt,
     refreshAll,
@@ -176,6 +178,13 @@ export default function Dashboard() {
               icon={<MessageSquare className="h-3 w-3" />}
               label={`Messages${messages.length ? ` (${messages.length})` : ""}`}
             />
+            <TabBtn
+              testid="tab-shift-log"
+              active={rightTab === "log"}
+              onClick={() => setRightTab("log")}
+              icon={<Clock className="h-3 w-3" />}
+              label="Log"
+            />
           </div>
 
           {rightTab === "ops" ? (
@@ -199,13 +208,15 @@ export default function Dashboard() {
               <GeofencePanel onChange={refreshAll} />
               <Injector onSent={refreshAll} />
             </div>
-          ) : (
+          ) : rightTab === "msg" ? (
             <MessagingPanel
               radios={radios}
               groups={groups}
               messages={messages}
               currentUser={user}
             />
+          ) : (
+            <ShiftLogPanel liveEntry={liveLogEntry} />
           )}
         </div>
       </div>

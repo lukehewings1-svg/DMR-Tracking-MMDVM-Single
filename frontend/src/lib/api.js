@@ -41,6 +41,16 @@ export const deleteRepeaterConfig = (repeaterId) =>
 export const adminSetUserGroups = (id, allowed_group_ids) =>
   api.post(`/admin/users/${id}/groups`, { allowed_group_ids }).then((r) => r.data);
 
+// --------- Shift log ---------
+export const listShiftLog = (params = {}) =>
+  api.get("/shift-log", { params }).then((r) => r.data);
+export const shiftLogCsvUrl = (params = {}) => {
+  const qs = new URLSearchParams(params).toString();
+  const token = localStorage.getItem(TOKEN_KEY);
+  return { url: `${API}/shift-log/export.csv${qs ? "?" + qs : ""}`, token };
+};
+export const clearShiftLog = () => api.delete("/shift-log").then((r) => r.data);
+
 // --------- Radios / positions / packets ----------
 export const fetchRadios = (opts = {}) => {
   const params = {};
