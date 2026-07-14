@@ -50,3 +50,22 @@ Iteration 1: 14/14 backend tests pass, all frontend flows validated. Iteration 2
 - WebSocket broadcasts `type=shift_log` for each new entry; the panel prepends live entries in real time.
 - Frontend: new "Log" tab in the right column alongside Ops and Messages. Chip filters (All / Emerg / Voice / Msg In / Msg Out / Geo / Pos), Refresh, CSV Download, and (admin) Clear.
 - Test status: iteration_5 = 65/66 backend + 100% frontend flows (1 bug); iteration_6 = 14/14 fix-verification tests passing.
+
+
+## v1.6 (Feb 2026): Setup Guide (in-app) + Situational Awareness
+- Consolidated `/app/README.md` at repo root — union of `SETUP.md` + `SETUP_PART2.md` for GitHub viewers, plus a new §6.11 on the situational-awareness view.
+- In-app Setup Guide page at `/setup` renders the SETUP markdown files via `react-markdown` + `remark-gfm`; Dashboard's "Setup Guide" button now navigates to this instead of opening the raw markdown.
+- Situational-awareness view: admin mints token-locked URLs (`/situational/<token>`) that show a full-screen, view-only OpenStreetMap with radio positions + active emergencies to unauthenticated viewers (command post big-screens, incident-command briefings). Tokens can be scoped to a group and can have an expiry.
+- Backend: `situational_tokens` collection, admin CRUD at `/api/situational-tokens`, public `/api/situational/{token}/snapshot` + `/api/situational/{token}/ws` (no auth). `_broadcast_public` fan-out sends a whitelisted subset (position/emergency/emergency_cleared/clear) so no admin fields leak.
+- Frontend: `SituationalView.jsx` (public), `SetupGuide.jsx`, `SituationalTokensPanel` embedded in AdminUsers.
+- Test status: iteration_7 = 23/23 backend + all frontend flows, 0 issues.
+
+## v1.7 (Feb 2026): Event Overlays (drawn shapes + image overlays)
+- New `overlays` collection for admin-managed "event overlay sets" (e.g. "Halloween Fun Run 2026"). Each set contains:
+  - Drawn annotations: marker / polyline / polygon / rectangle / circle with name, description, color; edited via the leaflet-geoman toolbar (`@geoman-io/leaflet-geoman-free`).
+  - Image overlays: upload a PNG/JPG/WEBP of the venue map, pinned to lat/lng bounds with two draggable corner handles + opacity slider.
+- Each set has an `active` On/Off toggle. Only active sets appear on the dispatcher map + the public situational-awareness view.
+- Endpoints (admin write, all-users read): `GET/POST/PATCH/DELETE /api/overlays`, `PUT /api/overlays/{id}/shapes`, `POST/PATCH/DELETE /api/overlays/{id}/images`. Uploaded files live under `/app/backend/uploads/overlays/{uuid}.{ext}` and are served via a `StaticFiles` mount at `/api/uploads/…`.
+- WebSocket fan-out: private WS broadcasts `overlay_upserted` / `overlay_removed` on any change; the public WS fan-out converts deactivations into `overlay_removed` so situational viewers drop them locally.
+- Frontend: new `OverlayLayer` (renders shapes + images), `OverlayEditor` (geoman toolbar + debounced save), `OverlayImageCorners` (drag SW/NE corners of an image), `OverlayManagerPanel` (admin sidebar to create/toggle/rename/delete overlay sets + upload images + opacity slider). Global `Overlays: On/Off` toggle in the top strip lets any dispatcher hide overlays locally without deactivating them; the situational-awareness view has an identical toggle.
+- Test status: iteration_8 = 16/16 backend + all frontend flows, 0 issues.
