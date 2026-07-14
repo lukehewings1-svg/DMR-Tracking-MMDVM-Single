@@ -1,0 +1,40 @@
+{
+  "summary": "Iteration 7 (situational awareness + setup guide). 23/23 backend tests pass after fixing one critical bug in the public WebSocket endpoint. Frontend flows verified end-to-end via Playwright: setup-guide markdown rendering, situational-tokens panel CRUD, public read-only situational view (unauth), bad-token error page.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "WS /api/situational/{token}/ws (bad token)", "issue": "close(code=4404) is invoked BEFORE websocket.accept(), so Starlette rejects the handshake with an HTTP 403 status instead of a 4404 close frame. Functionally correct (connection is refused) but the ws close code is never delivered as 4404. If clients need to disambiguate expired vs. missing token, consider accept()->close(4404). Not blocking."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "AdminUsers (situational panel)", "issues": ["React hydration warning: '<span> cannot be a child of <option>' – originates from the group <select> rendering '{g.name} (TG {g.talkgroup_id})' with markup issues in an <option>. Non-blocking but produces a console error on load."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration7_situational.py",
+    "/app/test_reports/pytest/iter7.xml"
+  ],
+  "action_items": [
+    "Optional: also send websocket 4404 close frame after accept() for bad-token WS handshake (currently returns HTTP 403 during handshake).",
+    "Optional: remove the <span> inside <option> in SituationalTokensPanel group <select> to silence the hydration warning."
+  ],
+  "critical_code_review_comments": [
+    "FIXED (testing agent): server.py declared public_ws_clients as set[dict] and did .add(viewer) with a dict — dicts are unhashable, causing TypeError: unhashable type: 'dict' on every public WebSocket connection. Changed to list[dict] and switched to .append/.remove. Without this fix the public situational WS was completely broken (real-time position/emergency broadcasts to public viewers never fired).",
+    "situational.py._expired handles ISO strings correctly with tz-aware fromisoformat since Python 3.11+ — good.",
+    "SituationalTokensPanel: consider wrapping <option> children in plain string interpolation only (no JSX spans) to avoid react hydration warnings."
+  ],
+  "updated_files": [
+    "/app/backend/server.py (public_ws_clients: set[dict] -> list[dict]; .add/.discard -> .append/.remove)",
+    "/app/backend/tests/test_iteration7_situational.py (new)"
+  ],
+  "success_rate": {"backend": "100% (23/23)", "frontend": "100% (create-token, public read-only view, bad-token error, setup guide render, back link, panel presence). Delete-via-UI could not be re-verified because pytest cleanup drained the token list; delete endpoint itself is covered by backend tests and the delete button/data-testid is confirmed rendered."},
+  "test_credentials": "admin@dmrtracker.app / admin123",
+  "seed_data_creation": "Fixtures create/delete their own tokens, radios (8500001/8600001/8600002/8700001), groups (TEST_grp_*), and a TEST_situ_user account — all cleaned up after each test.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Run with `pytest backend/tests/test_iteration7_situational.py -o addopts=` (repo's xdist config with loadscope conflicts otherwise). Requires websocket-client (pip install websocket-client). The public WS 4404 close frame is NOT delivered as 4404 by Starlette during handshake — it becomes an HTTP 403 handshake refusal. Both are treated as 'closed with bad status' by websocket-client, so the test accepts either.",
+  "rca of the issue": "server.py:71 declared `public_ws_clients: set[dict] = set()`. Python allows this annotation, but at runtime `set.add({...})` raises `TypeError: unhashable type: 'dict'`. Every public situational WebSocket connect crashed at line 1061 immediately after accept(), so no 'hello', no position, no emergency broadcasts. Fix: change container to list and use .append/.remove. Verified with test_ws_hello_and_position which now passes and receives hello + position + emergency + emergency_cleared events."
+}

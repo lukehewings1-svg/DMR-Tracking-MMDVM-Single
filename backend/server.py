@@ -37,6 +37,11 @@ from geofence import GeofenceEngine
 from groups import GroupStore
 from messaging import MessageStore
 from shift_log import ShiftLogStore, EVENT_TYPES
+from situational import (
+    SituationalTokenStore,
+    public_emergency_projection,
+    public_radio_projection,
+)
 from voice import VoiceGateway
 
 ROOT_DIR = Path(__file__).parent
@@ -61,6 +66,9 @@ auth.bind_db(db)
 
 packet_log: Deque[dict] = deque(maxlen=MAX_PACKETS_BUFFER)
 ws_clients: set[WebSocket] = set()
+# Public read-only WebSocket viewers keyed by their token document id.
+# Each entry is {"ws": WebSocket, "token_doc": dict}.
+public_ws_clients: list[dict] = []
 
 hb_master: Optional[HBMaster] = None
 hb_transport: Optional[asyncio.DatagramTransport] = None
@@ -70,6 +78,7 @@ channel_store: Optional[ChannelStore] = None
 repeater_config_store: Optional[RepeaterConfigStore] = None
 message_store: Optional[MessageStore] = None
 shift_log: Optional[ShiftLogStore] = None
+situational_store: Optional[SituationalTokenStore] = None
 voice_gateway = VoiceGateway()
 
 
@@ -176,6 +185,12 @@ class EmergencyInject(BaseModel):
     talkgroup_id: Optional[int] = None
 
 
+class SituationalTokenCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=64)
+    group_id: Optional[str] = None
+    expires_at: Optional[str] = None  # ISO 8601, optional
+
+
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -196,6 +211,61 @@ async def _broadcast(message: dict) -> None:
             dead.append(ws)
     for ws in dead:
         ws_clients.discard(ws)
+
+    # Fan out a *sanitised* subset to any public "situational awareness" viewers
+    await _broadcast_public(message)
+
+
+async def _broadcast_public(message: dict) -> None:
+    """Send a trimmed subset of events to read-only situational viewers."""
+    if not public_ws_clients:
+        return
+    mtype = message.get("type")
+    public_msg: Optional[dict] = None
+    filter_group: Optional[str] = None
+
+    if mtype == "packet":
+        pkt = message.get("packet") or {}
+        radio = {
+            "dmr_id": pkt.get("dmr_id"),
+            "callsign": pkt.get("callsign"),
+            "group_id": pkt.get("group_id"),
+            "icon": pkt.get("icon"),
+            "color": pkt.get("color"),
+            "lat": pkt.get("lat"),
+            "lon": pkt.get("lon"),
+            "timestamp": pkt.get("timestamp"),
+        }
+        public_msg = {"type": "position", "radio": public_radio_projection(radio)}
+        filter_group = pkt.get("group_id")
+    elif mtype == "emergency":
+        emg = message.get("emergency") or {}
+        public_msg = {"type": "emergency", "emergency": public_emergency_projection(emg)}
+        filter_group = emg.get("group_id")
+    elif mtype == "emergency_cleared":
+        public_msg = {
+            "type": "emergency_cleared",
+            "emergency_id": message.get("emergency_id"),
+            "dmr_id": message.get("dmr_id"),
+        }
+    elif mtype == "clear":
+        public_msg = {"type": "clear"}
+    else:
+        return
+
+    dead: list[dict] = []
+    for viewer in list(public_ws_clients):
+        # Enforce per-token group scoping
+        scope = viewer["token_doc"].get("group_id")
+        if scope and filter_group is not None and scope != filter_group:
+            continue
+        try:
+            await viewer["ws"].send_json(public_msg)
+        except Exception:  # noqa: BLE001
+            dead.append(viewer)
+    for v in dead:
+        if v in public_ws_clients:
+            public_ws_clients.remove(v)
 
 
 # --------------------------------------------------------------------------- #
@@ -372,7 +442,7 @@ async def send_dmrd_broadcast(frame: bytes) -> int:
 # --------------------------------------------------------------------------- #
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global hb_master, hb_transport, geofence_engine, group_store, channel_store, repeater_config_store, message_store, shift_log
+    global hb_master, hb_transport, geofence_engine, group_store, channel_store, repeater_config_store, message_store, shift_log, situational_store
     await auth.ensure_indexes()
     await auth.seed_admin()
     geofence_engine = GeofenceEngine(db, _broadcast)
@@ -394,6 +464,8 @@ async def lifespan(app: FastAPI):
     await message_store.ensure_indexes()
     shift_log = ShiftLogStore(db, _broadcast)
     await shift_log.ensure_indexes()
+    situational_store = SituationalTokenStore(db)
+    await situational_store.ensure_indexes()
     try:
         hb_transport, hb_master = await start_hb_master(
             HB_BIND_HOST,
@@ -941,6 +1013,64 @@ async def api_shift_log_clear(_: dict = Depends(get_current_admin)):
     await shift_log.clear()
     await _broadcast({"type": "shift_log_cleared"})
     return {"ok": True}
+
+
+# --------------------------------------------------------------------------- #
+# Situational awareness (token-locked read-only views)
+# --------------------------------------------------------------------------- #
+@api_router.get("/situational-tokens")
+async def sa_list_tokens(_: dict = Depends(get_current_admin)):
+    return await situational_store.list()
+
+
+@api_router.post("/situational-tokens")
+async def sa_create_token(body: SituationalTokenCreate, admin: dict = Depends(get_current_admin)):
+    if body.group_id:
+        g = await group_store.get(body.group_id)
+        if not g:
+            raise HTTPException(status_code=404, detail="Group not found")
+    return await situational_store.create(
+        name=body.name,
+        group_id=body.group_id,
+        expires_at=body.expires_at,
+        created_by=admin["email"],
+    )
+
+
+@api_router.delete("/situational-tokens/{token_id}")
+async def sa_delete_token(token_id: str, _: dict = Depends(get_current_admin)):
+    await situational_store.delete(token_id)
+    return {"ok": True}
+
+
+@api_router.get("/situational/{token}/snapshot")
+async def sa_snapshot(token: str):
+    doc = await situational_store.get_by_token(token)
+    if not doc:
+        raise HTTPException(status_code=404, detail="Unknown or expired token")
+    return await situational_store.snapshot(doc, db.radios, db.emergencies)
+
+
+@api_router.websocket("/situational/{token}/ws")
+async def sa_websocket(websocket: WebSocket, token: str):
+    doc = await situational_store.get_by_token(token)
+    if not doc:
+        await websocket.close(code=4404)
+        return
+    await websocket.accept()
+    viewer = {"ws": websocket, "token_doc": doc}
+    public_ws_clients.append(viewer)
+    try:
+        await websocket.send_json({"type": "hello", "server_time": _now_iso()})
+        while True:
+            await websocket.receive_text()
+    except WebSocketDisconnect:
+        pass
+    except Exception:  # noqa: BLE001
+        pass
+    finally:
+        if viewer in public_ws_clients:
+            public_ws_clients.remove(viewer)
 
 
 # --------------------------------------------------------------------------- #

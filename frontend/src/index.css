@@ -226,3 +226,112 @@ code,
     @apply bg-background text-foreground;
   }
 }
+
+
+/* --- Setup Guide markdown styling (no @tailwindcss/typography) --- */
+.setup-guide h1 {
+  font-size: 1.75rem;
+  font-weight: 700;
+  margin: 2rem 0 1rem;
+  border-bottom: 1px solid #2a2a2a;
+  padding-bottom: 0.5rem;
+  color: #f5f5f5;
+}
+.setup-guide h2 {
+  font-size: 1.375rem;
+  font-weight: 700;
+  margin: 2rem 0 0.75rem;
+  color: #00f0ff;
+  letter-spacing: -0.005em;
+}
+.setup-guide h3 {
+  font-size: 1.1rem;
+  font-weight: 600;
+  margin: 1.5rem 0 0.5rem;
+  color: #39ff14;
+}
+.setup-guide h4 {
+  font-size: 1rem;
+  font-weight: 600;
+  margin: 1.25rem 0 0.4rem;
+  color: #ffb800;
+}
+.setup-guide p {
+  margin: 0.75rem 0;
+  color: #d4d4d4;
+  line-height: 1.65;
+}
+.setup-guide ul,
+.setup-guide ol {
+  margin: 0.75rem 0 0.75rem 1.5rem;
+  color: #d4d4d4;
+}
+.setup-guide ul { list-style: disc; }
+.setup-guide ol { list-style: decimal; }
+.setup-guide li {
+  margin: 0.3rem 0;
+  line-height: 1.6;
+}
+.setup-guide a {
+  color: #00f0ff;
+  text-decoration: underline;
+  text-decoration-color: #00f0ff55;
+  text-underline-offset: 3px;
+}
+.setup-guide a:hover { text-decoration-color: #00f0ff; }
+.setup-guide code {
+  background: #0f0f0f;
+  border: 1px solid #2a2a2a;
+  padding: 0.05rem 0.35rem;
+  font-size: 0.875em;
+  color: #ffb800;
+}
+.setup-guide pre {
+  background: #0a0a0a;
+  border: 1px solid #2a2a2a;
+  border-left: 3px solid #00f0ff;
+  padding: 0.9rem 1rem;
+  overflow-x: auto;
+  margin: 1rem 0;
+  font-size: 0.85rem;
+  line-height: 1.55;
+}
+.setup-guide pre code {
+  background: transparent;
+  border: 0;
+  padding: 0;
+  color: #d4d4d4;
+}
+.setup-guide blockquote {
+  border-left: 3px solid #ffb800;
+  background: #1a1200;
+  padding: 0.65rem 1rem;
+  margin: 1rem 0;
+  color: #f3d97a;
+  font-style: italic;
+}
+.setup-guide hr {
+  border: 0;
+  border-top: 1px solid #2a2a2a;
+  margin: 2rem 0;
+}
+.setup-guide table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 1rem 0;
+  font-size: 0.9rem;
+}
+.setup-guide th,
+.setup-guide td {
+  border: 1px solid #2a2a2a;
+  padding: 0.45rem 0.7rem;
+  text-align: left;
+  color: #d4d4d4;
+}
+.setup-guide th {
+  background: #0f0f0f;
+  color: #00f0ff;
+  font-weight: 600;
+}
+.setup-guide strong { color: #f5f5f5; }
+.setup-guide em { color: #d4d4d4; }

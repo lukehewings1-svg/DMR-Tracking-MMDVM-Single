@@ -13,6 +13,7 @@ import { ArrowLeft, Check, X, ShieldCheck, User as UserIcon, Trash2, Users } fro
 import { formatDistanceToNowStrict } from "date-fns";
 import { useAuth } from "@/context/AuthContext";
 import { UserGroupsModal } from "@/components/UserGroupsModal";
+import { SituationalTokensPanel } from "@/components/SituationalTokensPanel";
 
 const STATUS_STYLE = {
   approved: "text-[#39ff14] border-[#39ff14]/40",
@@ -106,6 +107,7 @@ export default function AdminUsers() {
       </div>
 
       <div className="overflow-y-auto" style={{ maxHeight: "calc(100vh - 108px)" }}>
+        <SituationalTokensPanel groups={groups} />
         {loading && (
           <div className="p-10 text-center mono text-xs text-neutral-500">
             loading…

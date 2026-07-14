@@ -91,15 +91,13 @@ export default function Dashboard() {
           </span>
         </div>
         <div className="flex items-center gap-2">
-          <a
+          <Link
             data-testid="nav-setup-guide"
-            href="/SETUP.md"
-            target="_blank"
-            rel="noopener noreferrer"
+            to="/setup"
             className="flex items-center gap-1 border border-[#2a2a2a] px-2 py-1 text-neutral-300 hover:border-[#00f0ff] hover:text-[#00f0ff]"
           >
             <BookOpen className="h-3 w-3" /> Setup Guide
-          </a>
+          </Link>
           {isAdmin && (
             <>
               <Link

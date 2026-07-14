@@ -5,6 +5,8 @@ import Dashboard from "@/pages/Dashboard";
 import Login from "@/pages/Login";
 import Register from "@/pages/Register";
 import AdminUsers from "@/pages/AdminUsers";
+import SetupGuide from "@/pages/SetupGuide";
+import SituationalView from "@/pages/SituationalView";
 import { AuthProvider } from "@/context/AuthContext";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { Toaster } from "@/components/ui/sonner";
@@ -15,6 +17,9 @@ function App() {
       <BrowserRouter>
         <AuthProvider>
           <Routes>
+            {/* Public, token-locked read-only view (no auth) */}
+            <Route path="/situational/:token" element={<SituationalView />} />
+
             <Route path="/login" element={<Login />} />
             <Route path="/register" element={<Register />} />
             <Route
@@ -22,6 +27,14 @@ function App() {
               element={
                 <ProtectedRoute>
                   <Dashboard />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/setup"
+              element={
+                <ProtectedRoute>
+                  <SetupGuide />
                 </ProtectedRoute>
               }
             />

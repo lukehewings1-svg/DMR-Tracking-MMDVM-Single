@@ -121,6 +121,24 @@ export const clearEmergency = (id) =>
 export const simulateEmergency = (body) =>
   api.post("/emergencies/simulate", body).then((r) => r.data);
 
+// ---- Situational awareness (admin CRUD) ----
+export const listSituationalTokens = () =>
+  api.get("/situational-tokens").then((r) => r.data);
+export const createSituationalToken = (body) =>
+  api.post("/situational-tokens", body).then((r) => r.data);
+export const deleteSituationalToken = (id) =>
+  api.delete(`/situational-tokens/${id}`).then((r) => r.data);
+
+// ---- Situational awareness (public viewer, no auth) ----
+export const fetchSituationalSnapshot = (token) =>
+  axios.get(`${API}/situational/${token}/snapshot`).then((r) => r.data);
+export const situationalWsUrl = (token) => {
+  const url = new URL(BACKEND_URL);
+  url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+  url.pathname = `/api/situational/${token}/ws`;
+  return url.toString();
+};
+
 export function apiErrorMessage(err) {
   const detail = err?.response?.data?.detail;
   if (!detail) return err.message || "Something went wrong";
