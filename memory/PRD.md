@@ -40,3 +40,13 @@ Iteration 1: 14/14 backend tests pass, all frontend flows validated. Iteration 2
 - Dispatcher ACL: user doc gains allowed_group_ids: List[str]. Non-admin with a non-empty list only sees radios in those groups and can only send messages to those groups. Enforcement in /api/radios and /api/messages. Admin sets via POST /api/admin/users/{id}/groups.
 - Frontend additions: RepeaterConfigPanel (admin-only) in Ops tab, ChannelFilter updated for id-based channels, UserGroupsModal per user row in AdminUsers page.
 - Test status: iteration_4 = 52/52 backend + 100% frontend flows, 0 issues at any priority.
+
+## v1.5 (Feb 2026): Shift Log
+- New `shift_log` collection auto-persists every noteworthy event: position updates, emergencies + clears, inbound/outbound DMR SMS, voice TX (de-duped per stream, one entry per stream within 30s), geofence enter/exit alerts, radio-metadata edits.
+- Endpoints:
+  - `GET /api/shift-log?limit=&event_type=&dmr_id=&since=&until=` - list events, ACL-filtered so restricted dispatchers only see events for radios in their allowed groups (system events without a group are always visible).
+  - `GET /api/shift-log/export.csv?<same filters>` - streamed CSV download with a filename like `shift-log-20260214-153042.csv`.
+  - `DELETE /api/shift-log` (admin) - purge.
+- WebSocket broadcasts `type=shift_log` for each new entry; the panel prepends live entries in real time.
+- Frontend: new "Log" tab in the right column alongside Ops and Messages. Chip filters (All / Emerg / Voice / Msg In / Msg Out / Geo / Pos), Refresh, CSV Download, and (admin) Clear.
+- Test status: iteration_5 = 65/66 backend + 100% frontend flows (1 bug); iteration_6 = 14/14 fix-verification tests passing.
