@@ -56,15 +56,16 @@ class TestChannelsList:
         assert r.status_code == 200
         ch = r.json()
         assert isinstance(ch, list)
-        assert len(ch) == 2
-        slots = sorted([c["slot"] for c in ch])
-        assert slots == [1, 2]
+        # iteration 4: id-based (slot-1/slot-2 built-in, plus any admin-created uuids)
+        ids = [c["id"] for c in ch]
+        assert "slot-1" in ids and "slot-2" in ids
         for c in ch:
             assert "name" in c and c["name"]
             assert "color" in c
             assert "description" in c
             assert "created_at" in c
             assert "_id" not in c
+            assert "slot" not in c
 
 
 # ---------- PATCH /api/channels/{slot} ----------
@@ -86,7 +87,7 @@ class TestChannelUpdate:
         # Verify persistence via GET
         rl = requests.get(f"{API}/channels", headers=admin_headers, timeout=15)
         assert rl.status_code == 200
-        one = [c for c in rl.json() if c["slot"] == 1][0]
+        one = [c for c in rl.json() if c["id"] == "slot-1"][0]
         assert one["name"] == new_name
         assert one["description"] == "Primary net"
 
@@ -107,7 +108,7 @@ class TestChannelUpdate:
         r = requests.patch(
             f"{API}/channels/9", headers=admin_headers, json={"name": "X"}, timeout=15
         )
-        assert r.status_code == 400
+        assert r.status_code == 404
 
 
 # ---------- POST /api/inject with channel + /api/radios?channel filter ----------

@@ -54,12 +54,14 @@ class HBMaster(asyncio.DatagramProtocol):
         on_sms: MessageHandler,
         on_voice: VoiceHandler,
         on_emergency: PacketHandler,
+        channel_router=None,
     ):
         self.password = password.encode()
         self.on_gps = on_gps
         self.on_sms = on_sms
         self.on_voice = on_voice
         self.on_emergency = on_emergency
+        self.channel_router = channel_router  # RepeaterConfigStore-like
         self.sessions: Dict[int, RepeaterSession] = {}
         self.transport: Optional[asyncio.DatagramTransport] = None
         self.stats = {
@@ -147,16 +149,34 @@ class HBMaster(asyncio.DatagramProtocol):
             if not is_private:
                 session.last_talkgroup = dst_id
 
-        # ---- Cross-repeater relay (BOTH slots, all frames) ---------------- #
-        # In the unified-channel model each timeslot is a full channel carrying
-        # both voice and data. Voice frames are opaque to the parsers below and
-        # simply pass through; data frames are also relayed so text messages
-        # reach radios attached to other MMDVMs.
+        # ---- Cross-repeater relay (channel-aware) ------------------------ #
+        # Resolve which channel this frame belongs to for the source repeater.
+        src_channel_id = f"slot-{slot}"
+        if self.channel_router is not None:
+            try:
+                src_channel_id = await self.channel_router.channel_for_slot(rpt_id, slot)
+            except Exception:  # noqa: BLE001
+                pass
         relayed = 0
         for other_id, other in self.sessions.items():
             if other_id == rpt_id or not other.authenticated:
                 continue
-            self._send(data, other.address)
+            target_slot = slot
+            if self.channel_router is not None:
+                try:
+                    tgt = await self.channel_router.slot_for_channel(other_id, src_channel_id)
+                except Exception:  # noqa: BLE001
+                    tgt = None
+                if tgt is None:
+                    # This MMDVM does not carry the source channel - skip.
+                    continue
+                target_slot = tgt
+            frame = data
+            if target_slot != slot:
+                # Rewrite the slot bit in the DMRD packet (bit 7 of byte 15)
+                new_bits = (data[15] & ~0x80) | (0x80 if target_slot == 2 else 0)
+                frame = data[:15] + bytes([new_bits]) + data[16:]
+            self._send(frame, other.address)
             other.packets_relayed_out += 1
             relayed += 1
         self.stats["voice_relayed"] += relayed
@@ -170,6 +190,7 @@ class HBMaster(asyncio.DatagramProtocol):
                 "stream_id": stream_id,
                 "slot": slot,
                 "channel": slot,
+                "channel_id": src_channel_id,
                 "relayed_to": relayed,
             }
         )
@@ -289,9 +310,10 @@ async def start_hb_master(
     on_sms: MessageHandler,
     on_voice: VoiceHandler,
     on_emergency: PacketHandler,
+    channel_router=None,
 ) -> tuple[asyncio.DatagramTransport, HBMaster]:
     loop = asyncio.get_running_loop()
-    protocol = HBMaster(password, on_gps, on_sms, on_voice, on_emergency)
+    protocol = HBMaster(password, on_gps, on_sms, on_voice, on_emergency, channel_router)
     transport, _ = await loop.create_datagram_endpoint(
         lambda: protocol, local_addr=(bind_host, bind_port)
     )

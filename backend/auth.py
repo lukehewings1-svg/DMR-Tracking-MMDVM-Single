@@ -45,6 +45,7 @@ class UserPublic(BaseModel):
     role: str
     status: str
     created_at: str
+    allowed_group_ids: list[str] = []
 
 
 class RolePayload(BaseModel):
@@ -89,6 +90,7 @@ def to_public(user: dict) -> dict:
         "role": user.get("role", "user"),
         "status": user.get("status", "approved"),
         "created_at": user.get("created_at"),
+        "allowed_group_ids": user.get("allowed_group_ids") or [],
     }
 
 

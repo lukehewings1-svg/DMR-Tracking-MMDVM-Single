@@ -10,6 +10,7 @@ import { RadioDetailModal } from "@/components/RadioDetailModal";
 import { GeofencePanel, AlertsPanel } from "@/components/GeofencePanel";
 import { GroupsPanel } from "@/components/GroupsPanel";
 import { ChannelFilter } from "@/components/ChannelFilter";
+import { RepeaterConfigPanel } from "@/components/RepeaterConfigPanel";
 import { MessagingPanel } from "@/components/MessagingPanel";
 import { RepeatersPanel } from "@/components/RepeatersPanel";
 import { EmergencyBanner } from "@/components/EmergencyBanner";
@@ -185,6 +186,7 @@ export default function Dashboard() {
                 onFilter={setChannelFilter}
                 onChanged={refreshAll}
               />
+              <RepeaterConfigPanel channels={channels} />
               <GroupsPanel
                 groups={groups}
                 filter={groupFilter}

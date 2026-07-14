@@ -6,11 +6,13 @@ import {
   adminRejectUser,
   adminSetRole,
   adminDeleteUser,
+  listGroups,
 } from "@/lib/api";
 import { toast } from "sonner";
-import { ArrowLeft, Check, X, ShieldCheck, User as UserIcon, Trash2 } from "lucide-react";
+import { ArrowLeft, Check, X, ShieldCheck, User as UserIcon, Trash2, Users } from "lucide-react";
 import { formatDistanceToNowStrict } from "date-fns";
 import { useAuth } from "@/context/AuthContext";
+import { UserGroupsModal } from "@/components/UserGroupsModal";
 
 const STATUS_STYLE = {
   approved: "text-[#39ff14] border-[#39ff14]/40",
@@ -21,12 +23,16 @@ const STATUS_STYLE = {
 export default function AdminUsers() {
   const { user } = useAuth();
   const [users, setUsers] = useState([]);
+  const [groups, setGroups] = useState([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState("all");
+  const [groupsFor, setGroupsFor] = useState(null); // user obj being edited
 
   const load = async () => {
     try {
-      setUsers(await adminListUsers());
+      const [u, g] = await Promise.all([adminListUsers(), listGroups()]);
+      setUsers(u);
+      setGroups(g);
     } catch (e) {
       toast.error("Failed to load users");
     } finally {
@@ -181,6 +187,16 @@ export default function AdminUsers() {
                         <X className="h-3.5 w-3.5" />
                       </IconBtn>
                     )}
+                    {u.status === "approved" && u.role !== "admin" && (
+                      <IconBtn
+                        testid={`groups-${u.id}`}
+                        onClick={() => setGroupsFor(u)}
+                        title={`Group access (${(u.allowed_group_ids || []).length || "all"})`}
+                        color="#00f0ff"
+                      >
+                        <Users className="h-3.5 w-3.5" />
+                      </IconBtn>
+                    )}
                     {u.role !== "admin" && u.status === "approved" && (
                       <IconBtn
                         testid={`promote-${u.id}`}
@@ -225,6 +241,16 @@ export default function AdminUsers() {
           </tbody>
         </table>
       </div>
+
+      <UserGroupsModal
+        user={groupsFor}
+        groups={groups}
+        onClose={() => setGroupsFor(null)}
+        onSaved={() => {
+          setGroupsFor(null);
+          load();
+        }}
+      />
     </div>
   );
 }

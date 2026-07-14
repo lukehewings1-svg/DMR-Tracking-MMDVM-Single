@@ -29,7 +29,7 @@ from auth import (
     register_user,
     to_public,
 )
-from channels import ChannelStore
+from channels import ChannelStore, RepeaterConfigStore
 from dmr_ingest import HBMaster, start_hb_master
 from dmr_parsers import parse_gps_payload, parser_names
 from geofence import GeofenceEngine
@@ -65,6 +65,7 @@ hb_transport: Optional[asyncio.DatagramTransport] = None
 geofence_engine: Optional[GeofenceEngine] = None
 group_store: Optional[GroupStore] = None
 channel_store: Optional[ChannelStore] = None
+repeater_config_store: Optional[RepeaterConfigStore] = None
 message_store: Optional[MessageStore] = None
 voice_gateway = VoiceGateway()
 
@@ -129,6 +130,23 @@ class ChannelUpdate(BaseModel):
     name: Optional[str] = Field(default=None, max_length=48)
     description: Optional[str] = None
     color: Optional[str] = None
+
+
+class ChannelCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=48)
+    color: Optional[str] = None
+    description: Optional[str] = None
+
+
+class RepeaterConfigBody(BaseModel):
+    name: Optional[str] = Field(default=None, max_length=64)
+    notes: Optional[str] = None
+    slot1_channel_id: Optional[str] = None
+    slot2_channel_id: Optional[str] = None
+
+
+class UserGroupsPayload(BaseModel):
+    allowed_group_ids: list[str] = Field(default_factory=list)
 
 
 class MessageSend(BaseModel):
@@ -335,7 +353,7 @@ async def send_dmrd_broadcast(frame: bytes) -> int:
 # --------------------------------------------------------------------------- #
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global hb_master, hb_transport, geofence_engine, group_store, channel_store, message_store
+    global hb_master, hb_transport, geofence_engine, group_store, channel_store, repeater_config_store, message_store
     await auth.ensure_indexes()
     await auth.seed_admin()
     geofence_engine = GeofenceEngine(db, _broadcast)
@@ -345,6 +363,8 @@ async def lifespan(app: FastAPI):
     channel_store = ChannelStore(db)
     await channel_store.ensure_indexes()
     await channel_store.seed_defaults()
+    repeater_config_store = RepeaterConfigStore(db)
+    await repeater_config_store.ensure_indexes()
     message_store = MessageStore(
         db=db,
         broadcast=_broadcast,
@@ -362,6 +382,7 @@ async def lifespan(app: FastAPI):
             on_dmr_sms,
             on_voice_activity,
             on_emergency,
+            channel_router=repeater_config_store,
         )
     except OSError as exc:
         logger.warning("HB Master could not bind to %s:%s (%s).", HB_BIND_HOST, HB_BIND_PORT, exc)
@@ -465,6 +486,19 @@ async def admin_set_role(user_id: str, body: RolePayload, admin: dict = Depends(
     return to_public(updated)
 
 
+@api_router.post("/admin/users/{user_id}/groups", response_model=UserPublic)
+async def admin_set_user_groups(
+    user_id: str, body: UserGroupsPayload, _: dict = Depends(get_current_admin)
+):
+    await db.users.update_one(
+        {"id": user_id}, {"$set": {"allowed_group_ids": body.allowed_group_ids}}
+    )
+    updated = await db.users.find_one({"id": user_id}, {"_id": 0, "password_hash": 0})
+    if not updated:
+        raise HTTPException(status_code=404, detail="User not found")
+    return to_public(updated)
+
+
 @api_router.delete("/admin/users/{user_id}")
 async def admin_delete_user(user_id: str, admin: dict = Depends(get_current_admin)):
     if user_id == admin["id"]:
@@ -482,13 +516,18 @@ async def admin_delete_user(user_id: str, admin: dict = Depends(get_current_admi
 async def list_radios(
     group_id: Optional[str] = None,
     channel: Optional[int] = None,
-    _: dict = Depends(get_current_user),
+    user: dict = Depends(get_current_user),
 ):
     q: dict = {}
     if group_id:
         q["group_id"] = group_id
     if channel:
         q["last_channel"] = channel
+    # Dispatcher ACL: non-admin with a non-empty allowed_group_ids list only
+    # sees radios in those groups (empty list = unrestricted / legacy).
+    allowed = user.get("allowed_group_ids") or []
+    if user.get("role") != "admin" and allowed:
+        q["group_id"] = {"$in": allowed if not group_id else [group_id]} if not group_id or group_id in allowed else {"$in": []}
     cursor = db.radios.find(q, {"_id": 0}).sort("last_seen", -1)
     return await cursor.to_list(500)
 
@@ -590,20 +629,64 @@ async def list_repeaters(_: dict = Depends(get_current_user)):
 
 
 # --------------------------------------------------------------------------- #
-# Channels (timeslots)
+# Channels (talk-net logical channels; slot-1/slot-2 seeded for back-compat)
 # --------------------------------------------------------------------------- #
 @api_router.get("/channels")
 async def api_list_channels(_: dict = Depends(get_current_user)):
     return await channel_store.list()
 
 
-@api_router.patch("/channels/{slot}")
-async def api_update_channel(slot: int, body: ChannelUpdate, _: dict = Depends(get_current_admin)):
-    if slot not in (1, 2):
-        raise HTTPException(status_code=400, detail="slot must be 1 or 2")
-    ch = await channel_store.update(slot, body.model_dump(exclude_unset=True))
+@api_router.post("/channels")
+async def api_create_channel(body: ChannelCreate, _: dict = Depends(get_current_admin)):
+    ch = await channel_store.create(body.model_dump())
     await _broadcast({"type": "channels_changed"})
     return ch
+
+
+@api_router.patch("/channels/{channel_id}")
+async def api_update_channel(channel_id: str, body: ChannelUpdate, _: dict = Depends(get_current_admin)):
+    # legacy slot=1/2 rename path also supported
+    if channel_id in ("1", "2"):
+        channel_id = f"slot-{channel_id}"
+    ch = await channel_store.update(channel_id, body.model_dump(exclude_unset=True))
+    if not ch:
+        raise HTTPException(status_code=404, detail="Channel not found")
+    await _broadcast({"type": "channels_changed"})
+    return ch
+
+
+@api_router.delete("/channels/{channel_id}")
+async def api_delete_channel(channel_id: str, _: dict = Depends(get_current_admin)):
+    try:
+        await channel_store.delete(channel_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    await _broadcast({"type": "channels_changed"})
+    return {"ok": True}
+
+
+# --------------------------------------------------------------------------- #
+# Repeater configs (per-MMDVM slot->channel binding)
+# --------------------------------------------------------------------------- #
+@api_router.get("/repeater-configs")
+async def api_list_repeater_configs(_: dict = Depends(get_current_user)):
+    return await repeater_config_store.list()
+
+
+@api_router.put("/repeater-configs/{repeater_id}")
+async def api_upsert_repeater_config(
+    repeater_id: int, body: RepeaterConfigBody, _: dict = Depends(get_current_admin)
+):
+    cfg = await repeater_config_store.upsert(repeater_id, body.model_dump(exclude_unset=True))
+    await _broadcast({"type": "repeater_configs_changed"})
+    return cfg
+
+
+@api_router.delete("/repeater-configs/{repeater_id}")
+async def api_delete_repeater_config(repeater_id: int, _: dict = Depends(get_current_admin)):
+    await repeater_config_store.delete(repeater_id)
+    await _broadcast({"type": "repeater_configs_changed"})
+    return {"ok": True}
 
 
 # --------------------------------------------------------------------------- #
@@ -654,6 +737,10 @@ async def api_send_message(body: MessageSend, user: dict = Depends(get_current_u
         g = await group_store.get(body.group_id)
         if not g:
             raise HTTPException(status_code=404, detail="Group not found")
+        # Dispatcher ACL: non-admin restricted users can only send to their allowed groups
+        allowed = user.get("allowed_group_ids") or []
+        if user.get("role") != "admin" and allowed and body.group_id not in allowed:
+            raise HTTPException(status_code=403, detail="You do not have access to this group")
         tg = g["talkgroup_id"]
     return await message_store.send(
         text=body.text,

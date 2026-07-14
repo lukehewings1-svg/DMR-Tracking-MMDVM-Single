@@ -23,8 +23,23 @@ export const wsUrl = () => {
 
 // --------- Channels ---------
 export const listChannels = () => api.get("/channels").then((r) => r.data);
-export const updateChannel = (slot, body) =>
-  api.patch(`/channels/${slot}`, body).then((r) => r.data);
+export const createChannel = (body) => api.post("/channels", body).then((r) => r.data);
+export const updateChannel = (id, body) =>
+  api.patch(`/channels/${id}`, body).then((r) => r.data);
+export const deleteChannel = (id) =>
+  api.delete(`/channels/${id}`).then((r) => r.data);
+
+// --------- Repeater configs ---------
+export const listRepeaterConfigs = () =>
+  api.get("/repeater-configs").then((r) => r.data);
+export const upsertRepeaterConfig = (repeaterId, body) =>
+  api.put(`/repeater-configs/${repeaterId}`, body).then((r) => r.data);
+export const deleteRepeaterConfig = (repeaterId) =>
+  api.delete(`/repeater-configs/${repeaterId}`).then((r) => r.data);
+
+// --------- Dispatcher ACL ---------
+export const adminSetUserGroups = (id, allowed_group_ids) =>
+  api.post(`/admin/users/${id}/groups`, { allowed_group_ids }).then((r) => r.data);
 
 // --------- Radios / positions / packets ----------
 export const fetchRadios = (opts = {}) => {

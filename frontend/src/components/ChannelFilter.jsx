@@ -34,29 +34,35 @@ export function ChannelFilter({ channels, filter, onFilter, onChanged }) {
           active={!filter}
           onClick={() => onFilter?.(null)}
         />
-        {channels.map((c) => (
-          <div key={c.slot} className="flex">
-            <Chip
-              testid={`channel-chip-${c.slot}`}
-              icon={<Radio className="h-3 w-3" />}
-              label={c.name || `Channel ${c.slot}`}
-              hint={`TS${c.slot}`}
-              color={c.color}
-              active={filter === c.slot}
-              onClick={() => onFilter?.(filter === c.slot ? null : c.slot)}
-            />
-            {isAdmin && (
-              <button
-                data-testid={`channel-edit-${c.slot}`}
-                onClick={() => setEditing(c)}
-                className="ml-[-1px] border border-[#2a2a2a] px-1.5 text-neutral-500 hover:border-[#00f0ff] hover:text-[#00f0ff]"
-                title="Rename channel"
-              >
-                <Settings2 className="h-3 w-3" />
-              </button>
-            )}
-          </div>
-        ))}
+        {channels.map((c) => {
+          // channel filter still uses last_channel (1|2) which reflects the
+          // physical timeslot the packet came in on. Legacy slot-1/slot-2
+          // channels map directly; user-added channels currently share the
+          // slot the source MMDVM has bound them to at ingest time.
+          const slot = c.id === "slot-2" ? 2 : 1;
+          return (
+            <div key={c.id} className="flex">
+              <Chip
+                testid={`channel-chip-${c.id}`}
+                icon={<Radio className="h-3 w-3" />}
+                label={c.name || c.id}
+                color={c.color}
+                active={filter === slot}
+                onClick={() => onFilter?.(filter === slot ? null : slot)}
+              />
+              {isAdmin && (
+                <button
+                  data-testid={`channel-edit-${c.id}`}
+                  onClick={() => setEditing(c)}
+                  className="ml-[-1px] border border-[#2a2a2a] px-1.5 text-neutral-500 hover:border-[#00f0ff] hover:text-[#00f0ff]"
+                  title="Rename channel"
+                >
+                  <Settings2 className="h-3 w-3" />
+                </button>
+              )}
+            </div>
+          );
+        })}
       </div>
 
       <ChannelEditModal
@@ -107,7 +113,7 @@ function ChannelEditModal({ channel, onClose, onSaved }) {
   const open = !!channel;
   const save = async () => {
     try {
-      await updateChannel(channel.slot, {
+      await updateChannel(channel.id, {
         name: name || channel.name,
         description: description || channel.description,
       });
@@ -137,11 +143,11 @@ function ChannelEditModal({ channel, onClose, onSaved }) {
       >
         <DialogHeader className="border-b border-[#2a2a2a] p-4">
           <DialogTitle className="text-base">
-            Rename Channel {channel?.slot}
+            Rename Channel
           </DialogTitle>
           <DialogDescription className="mono text-[10px] text-neutral-500">
-            Label for DMR timeslot {channel?.slot}. Applies to every radio using
-            this slot across every MMDVM.
+            Label for channel {channel?.name}. Radios and dispatchers see this
+            name across the app.
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-3 p-4">
