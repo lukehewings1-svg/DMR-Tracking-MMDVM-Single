@@ -82,6 +82,18 @@ against the recipient user's visible orgs for that resource type.
 - [x] Frontend: `SuperAdminOrgs` page + `OrgLinksPanel` component +
       org badge in top bar + role-gated UI + `admin/orgs` route.
 
+## Implemented (v2.1 — 2026-02 — Event Sessions)
+- [x] `events` collection + `EventStore` with planned/active/ended lifecycle.
+- [x] `/api/events` full CRUD + `/participants`, `/overlays`, `/start`, `/end`.
+- [x] On start(): fully-connected org-links (N*(N-1) directional) auto-created
+      and immediately approved, tagged with `event_id` + note "Event: <name>".
+- [x] On end() (manual or auto-end from background loop): those links revoked;
+      attached overlays deactivated.
+- [x] event_started + event_ended shift-log entries fan out to every
+      participant org's log.
+- [x] `EventsPanel.jsx` frontend UI on `/admin/orgs` — open to all admins.
+- [x] Verified: 17/17 events pytest cases + 26/26 multi-org regression pass.
+
 ## Verification (backend curl smoke test)
 - Super_admin creates org "Test Rescue", bootstraps its admin, admin logs in.
 - Rescue admin sees only their 4 default groups + 0 radios initially.
