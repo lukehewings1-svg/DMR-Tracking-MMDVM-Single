@@ -627,7 +627,7 @@ export default function Dashboard() {
           >
             <ShieldCheck className="h-3 w-3" /> Users
           </Link>
-          {isSuperAdmin && (
+          {isAdmin && (
             <Link
               data-testid="nav-orgs"
               to="/admin/orgs"
@@ -746,7 +746,7 @@ export default function Dashboard() {
                 >
                   <ShieldCheck className="h-4 w-4" /> Users
                 </Link>
-                {isSuperAdmin && (
+                {isAdmin && (
                   <Link
                     to="/admin/orgs"
                     onClick={() => setMobileMenuOpen(false)}

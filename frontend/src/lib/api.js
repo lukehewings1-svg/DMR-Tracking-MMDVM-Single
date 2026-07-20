@@ -194,6 +194,28 @@ export const revokeOrgLink = (id) =>
 export const deleteOrgLink = (id) =>
   api.delete(`/org-links/${id}`).then((r) => r.data);
 
+// ---- Event Sessions ----
+export const listEvents = () => api.get("/events").then((r) => r.data);
+export const getEvent = (id) => api.get(`/events/${id}`).then((r) => r.data);
+export const createEvent = (body) =>
+  api.post("/events", body).then((r) => r.data);
+export const updateEvent = (id, body) =>
+  api.patch(`/events/${id}`, body).then((r) => r.data);
+export const addEventParticipant = (id, orgId) =>
+  api.post(`/events/${id}/participants`, { org_id: orgId }).then((r) => r.data);
+export const removeEventParticipant = (id, orgId) =>
+  api.delete(`/events/${id}/participants/${orgId}`).then((r) => r.data);
+export const attachEventOverlay = (id, overlayId) =>
+  api.post(`/events/${id}/overlays/${overlayId}`).then((r) => r.data);
+export const detachEventOverlay = (id, overlayId) =>
+  api.delete(`/events/${id}/overlays/${overlayId}`).then((r) => r.data);
+export const startEvent = (id) =>
+  api.post(`/events/${id}/start`).then((r) => r.data);
+export const endEvent = (id) =>
+  api.post(`/events/${id}/end`).then((r) => r.data);
+export const deleteEvent = (id) =>
+  api.delete(`/events/${id}`).then((r) => r.data);
+
 // ---- Role helpers ----
 export const isAdmin = (u) => u?.role === "admin" || u?.role === "super_admin";
 export const isSuperAdmin = (u) => u?.role === "super_admin";

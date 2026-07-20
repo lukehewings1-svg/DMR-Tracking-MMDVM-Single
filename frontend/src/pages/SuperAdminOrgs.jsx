@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
+import axios from "axios";
 import {
   listOrgs,
   createOrg,
@@ -22,18 +23,33 @@ import {
   Shield,
 } from "lucide-react";
 import { OrgLinksPanel } from "@/components/OrgLinksPanel";
+import { EventsPanel } from "@/components/EventsPanel";
+import { isSuperAdmin } from "@/lib/api";
+
+const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
+const OVERLAY_API = axios.create({ baseURL: `${BACKEND_URL}/api` });
+OVERLAY_API.interceptors.request.use((config) => {
+  const token = localStorage.getItem("token");
+  if (token) config.headers.Authorization = `Bearer ${token}`;
+  return config;
+});
 
 export default function SuperAdminOrgs() {
   const { user } = useAuth();
   const [orgs, setOrgs] = useState([]);
+  const [overlays, setOverlays] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showNew, setShowNew] = useState(false);
   const [bootstrapFor, setBootstrapFor] = useState(null);
 
   const load = async () => {
     try {
-      const list = await listOrgs();
+      const [list, ov] = await Promise.all([
+        listOrgs(),
+        OVERLAY_API.get("/overlays").then((r) => r.data).catch(() => []),
+      ]);
       setOrgs(list);
+      setOverlays(ov);
     } catch (e) {
       toast.error("Failed to load organizations");
     } finally {
@@ -86,13 +102,15 @@ export default function SuperAdminOrgs() {
           <div className="mono text-[11px] uppercase tracking-widest text-neutral-500">
             {orgs.length} organization{orgs.length === 1 ? "" : "s"}
           </div>
-          <button
-            data-testid="new-org-btn"
-            onClick={() => setShowNew(true)}
-            className="flex items-center gap-2 border border-[#39ff14] bg-[#39ff14]/10 px-3 py-1.5 mono text-[11px] uppercase tracking-widest text-[#39ff14] hover:bg-[#39ff14]/20"
-          >
-            <Plus className="h-3 w-3" /> New Organization
-          </button>
+          {isSuperAdmin(user) && (
+            <button
+              data-testid="new-org-btn"
+              onClick={() => setShowNew(true)}
+              className="flex items-center gap-2 border border-[#39ff14] bg-[#39ff14]/10 px-3 py-1.5 mono text-[11px] uppercase tracking-widest text-[#39ff14] hover:bg-[#39ff14]/20"
+            >
+              <Plus className="h-3 w-3" /> New Organization
+            </button>
+          )}
         </div>
 
         {loading && (
@@ -106,6 +124,7 @@ export default function SuperAdminOrgs() {
             <OrgCard
               key={o.id}
               org={o}
+              isSuper={isSuperAdmin(user)}
               onUpdate={(patch) =>
                 act(() => updateOrg(o.id, patch), "Organization updated")
               }
@@ -122,6 +141,7 @@ export default function SuperAdminOrgs() {
         </div>
 
         <OrgLinksPanel orgs={orgs} />
+        <EventsPanel orgs={orgs} overlays={overlays} />
       </div>
 
       {showNew && (
@@ -147,7 +167,7 @@ export default function SuperAdminOrgs() {
   );
 }
 
-function OrgCard({ org, onUpdate, onRotate, onBootstrap, onDelete }) {
+function OrgCard({ org, isSuper, onUpdate, onRotate, onBootstrap, onDelete }) {
   const [showPwd, setShowPwd] = useState(false);
   return (
     <div
@@ -161,24 +181,26 @@ function OrgCard({ org, onUpdate, onRotate, onBootstrap, onDelete }) {
           </div>
           <div className="text-base font-semibold">{org.name}</div>
         </div>
-        <div className="flex items-center gap-1">
-          <button
-            data-testid={`bootstrap-${org.id}`}
-            title="Create first admin user"
-            onClick={onBootstrap}
-            className="border border-[#2a2a2a] p-1.5 text-neutral-400 hover:text-[#39ff14] hover:border-[#39ff14]"
-          >
-            <UserPlus className="h-3.5 w-3.5" />
-          </button>
-          <button
-            data-testid={`delete-org-${org.id}`}
-            title="Delete organization"
-            onClick={onDelete}
-            className="border border-[#2a2a2a] p-1.5 text-neutral-400 hover:text-[#ff3b30] hover:border-[#ff3b30]"
-          >
-            <Trash2 className="h-3.5 w-3.5" />
-          </button>
-        </div>
+        {isSuper && (
+          <div className="flex items-center gap-1">
+            <button
+              data-testid={`bootstrap-${org.id}`}
+              title="Create first admin user"
+              onClick={onBootstrap}
+              className="border border-[#2a2a2a] p-1.5 text-neutral-400 hover:text-[#39ff14] hover:border-[#39ff14]"
+            >
+              <UserPlus className="h-3.5 w-3.5" />
+            </button>
+            <button
+              data-testid={`delete-org-${org.id}`}
+              title="Delete organization"
+              onClick={onDelete}
+              className="border border-[#2a2a2a] p-1.5 text-neutral-400 hover:text-[#ff3b30] hover:border-[#ff3b30]"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        )}
       </div>
 
       <div className="mt-3 grid gap-2 mono text-[11px]">
@@ -209,14 +231,16 @@ function OrgCard({ org, onUpdate, onRotate, onBootstrap, onDelete }) {
               >
                 <Copy className="h-3 w-3" />
               </button>
-              <button
-                data-testid={`rotate-${org.id}`}
-                title="Rotate password"
-                onClick={onRotate}
-                className="text-neutral-500 hover:text-[#ffb800]"
-              >
-                <RefreshCw className="h-3 w-3" />
-              </button>
+              {isSuper && (
+                <button
+                  data-testid={`rotate-${org.id}`}
+                  title="Rotate password"
+                  onClick={onRotate}
+                  className="text-neutral-500 hover:text-[#ffb800]"
+                >
+                  <RefreshCw className="h-3 w-3" />
+                </button>
+              )}
             </>
           )}
         </div>

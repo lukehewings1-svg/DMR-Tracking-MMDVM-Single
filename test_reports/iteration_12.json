@@ -1,0 +1,40 @@
+{
+  "summary": "Iteration 12 — Event Sessions feature tested end-to-end. Backend: 17/17 new event pytest cases pass (create/list/patch, add-participant, start creates N*(N-1)=6 ACTIVE view+dispatch links tagged 'Event: <name>', cross-org radio visibility during active event, end revokes only event-created links & leaves pre-existing links untouched, delete refused while active but ok when planned/ended, RBAC user 403 on create/start/end, overlay attach+start activates and end deactivates, event_started/event_ended shift-log entries appear in EVERY participant org's log, auto-end smoke). Regression: 26/26 multi-org tests still pass. Frontend: /admin/orgs shows events-panel + new-event-btn for super_admin; New Event modal opens, submits, event card appears PLANNED; manage-event-modal opens with add-participant-select+btn (toast 'Participant added'); start-event-<id> transitions status to ACTIVE with 'live' pulse indicator, end-event-<id> replaces start; end transitions to ENDED and delete-event-<id> appears + successfully deletes the card. Corresponding event-created org-links visible under 'Inter-Org Resource Sharing' with note 'Event: <name>' and status transitioning ACTIVE→REVOKED on end. No blocking issues found.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "React lists (multiple locations)", "issue": "Repeated 'Encountered two children with the same key' warnings in console on /admin/orgs. Non-fatal but indicates non-unique keys somewhere (likely repeated participant chips, org-link cards, or channel list rows).", "selector": "n/a", "priority": "LOW"}
+    ],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_events.py",
+    "/app/backend/tests/test_multiorg.py",
+    "/app/test_reports/pytest/events_results.xml",
+    "/app/test_reports/pytest/multiorg_results.xml"
+  ],
+  "action_items": [
+    "(Optional) Track down and fix the duplicate React key warning on /admin/orgs — grep for .map(...=> without a unique key= in EventsPanel/OrgLinksPanel/SuperAdminOrgs."
+  ],
+  "critical_code_review_comments": [
+    "server.py now ~2080 lines — splitting into routers (events, org-links, orgs, radios) becomes urgent for maintainability.",
+    "EventStore.remove_participant blocks while active but the DELETE participant endpoint doesn't gracefully return the ValueError as 400 for all paths — currently OK but any future callers should route through the endpoint.",
+    "The auto-end background loop uses ISO string comparison against end_at, which works only because both are UTC-normalized ISO. Consider parsing to datetime for safety.",
+    "Event start creates links via propose+approve+patch(event_id) in 3 DB round-trips per pair; for large N this is O(N^2) sequential awaits. Fine for demo scale, revisit for >20 orgs.",
+    "EventsPanel.jsx uses window.confirm() for end/delete which cannot be styled and blocks Playwright unless a dialog handler is attached — consider a shadcn AlertDialog for consistency."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_events.py"
+  ],
+  "success_rate": {"backend": "100% (17/17 events + 26/26 regression = 43/43)", "frontend": "100% of tested flows (create → planned → participant add → start → active → end → ended → delete)"},
+  "test_credentials": "admin@dmrtracker.app / admin123 (super_admin). Test-created admins: eadma_<runid>@test.app, eadmb_<runid>@test.app, eadmc_<runid>@test.app, all pw123456; euser_<runid>@test.app / pw123456 for RBAC.",
+  "seed_data_creation": "Each pytest run creates 3 test orgs (TEST_EvtA/B/C_<runid>), 3 admins, one regular user, and various TEST_ prefixed events + one overlay. Orgs are torn down at session end. UI test created (and deleted) an event named TEST_UI_Halloween_XYZ.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Event tests live at /app/backend/tests/test_events.py. Run via `pytest tests/test_events.py`. loadscope xdist splits per-class so class-scoped fixtures like lifecycle_event work but cross-class state via pytest.<attr> does NOT. Frontend testids present: events-panel, new-event-btn, new-event-modal, event-name, event-description, event-host-org, event-end-at, event-perms-view, event-perms-view+dispatch, event-share-<res>, create-event-submit, manage-event-<id>, manage-event-modal, add-participant-select, add-participant-btn, remove-participant-<orgid>, attach-overlay-select, attach-overlay-btn, detach-overlay-<oid>, start-event-<id>, end-event-<id>, delete-event-<id>. End/delete use window.confirm — Playwright needs page.on('dialog', accept). /api/org-links is org-scoped so tests validating N*(N-1) links must query as super_admin.",
+  "rca of the issue": "No unresolved bugs. Two initial test failures were pytest-xdist loadscope issues (module-level pytest attribute doesn't cross workers) — refactored to class-scoped fixture. One initial cross-org-link visibility assertion failed because /api/org-links is filtered to the caller's own org (which is correct security behavior); switched to super_client for the assertion."
+}

@@ -51,6 +51,7 @@ from auth import (
 from channels import ChannelStore, RepeaterConfigStore
 from dmr_ingest import HBMaster, start_hb_master
 from dmr_parsers import parse_gps_payload, parser_names
+from events import EventStore
 from geofence import GeofenceEngine
 from groups import GroupStore
 from messaging import MessageStore
@@ -109,6 +110,7 @@ overlay_store: Optional[OverlayStore] = None
 situational_store: Optional[SituationalTokenStore] = None
 org_store: Optional[OrganizationStore] = None
 org_link_store: Optional[OrgLinkStore] = None
+event_store: Optional[EventStore] = None
 voice_gateway = VoiceGateway()
 
 _default_org_id: Optional[str] = None
@@ -293,6 +295,29 @@ class OrgLinkUpdate(BaseModel):
     permissions: Optional[str] = Field(default=None, pattern="^(view|view\\+dispatch)$")
     expires_at: Optional[str] = None
     note: Optional[str] = None
+
+
+class EventCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=80)
+    description: Optional[str] = ""
+    host_org_id: Optional[str] = None
+    start_at: Optional[str] = None
+    end_at: Optional[str] = None
+    permissions: str = Field(default="view+dispatch", pattern="^(view|view\\+dispatch)$")
+    share: Optional[dict] = None
+
+
+class EventUpdate(BaseModel):
+    name: Optional[str] = Field(default=None, min_length=1, max_length=80)
+    description: Optional[str] = None
+    start_at: Optional[str] = None
+    end_at: Optional[str] = None
+    permissions: Optional[str] = Field(default=None, pattern="^(view|view\\+dispatch)$")
+    share: Optional[dict] = None
+
+
+class EventParticipant(BaseModel):
+    org_id: str
 
 
 # --------------------------------------------------------------------------- #
@@ -695,6 +720,23 @@ async def lifespan(app: FastAPI):
     overlay_store = OverlayStore(db)
     await overlay_store.ensure_indexes()
 
+    global event_store
+    event_store = EventStore(db, org_link_store, overlay_store)
+    await event_store.ensure_indexes()
+
+    async def _auto_end_events_loop():
+        while True:
+            try:
+                ended = await event_store.maybe_auto_end()
+                for eid in ended:
+                    ev = await event_store.get(eid)
+                    await _broadcast({"type": "event_ended", "event": ev})
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("auto_end_events tick failed: %s", exc)
+            await asyncio.sleep(60)
+
+    auto_end_task = asyncio.create_task(_auto_end_events_loop())
+
     async def _repeater_org_resolver(repeater_id: int) -> Optional[dict]:
         """Return the org doc that owns this MMDVM (via repeater_configs)."""
         cfg = await repeater_config_store.get(repeater_id)
@@ -720,6 +762,7 @@ async def lifespan(app: FastAPI):
         hb_transport = None
         hb_master = None
     yield
+    auto_end_task.cancel()
     if hb_transport is not None:
         hb_transport.close()
     client.close()
@@ -953,6 +996,183 @@ async def org_links_revoke(link_id: str, user: dict = Depends(get_current_user))
 async def org_links_delete(link_id: str, _: dict = Depends(get_current_super_admin)):
     await org_link_store.delete(link_id)
     await _broadcast({"type": "org_link_removed", "link_id": link_id})
+    return {"ok": True}
+
+
+# --------------------------------------------------------------------------- #
+# Event Sessions — one-click multi-agency bundles
+# --------------------------------------------------------------------------- #
+async def _event_viewer_scope(user: dict) -> Optional[list[str]]:
+    if user.get("role") == "super_admin":
+        return None
+    return [user.get("org_id")] if user.get("org_id") else []
+
+
+def _require_event_host_admin(user: dict, event: dict) -> None:
+    _require_admin_for_org(user, event.get("host_org_id"))
+
+
+@api_router.get("/events")
+async def events_list(user: dict = Depends(get_current_user)):
+    scope = await _event_viewer_scope(user)
+    return await event_store.list(viewer_org_ids=scope)
+
+
+@api_router.get("/events/{event_id}")
+async def events_get(event_id: str, user: dict = Depends(get_current_user)):
+    ev = await event_store.get(event_id)
+    if not ev:
+        raise HTTPException(status_code=404, detail="Event not found")
+    if user.get("role") != "super_admin":
+        if user.get("org_id") not in (ev.get("participant_org_ids") or []):
+            raise HTTPException(status_code=404, detail="Event not found")
+    return ev
+
+
+@api_router.post("/events")
+async def events_create(body: EventCreate, user: dict = Depends(get_current_admin)):
+    host_org_id = body.host_org_id or user.get("org_id") or _default_org_id
+    _require_admin_for_org(user, host_org_id)
+    ev = await event_store.create(
+        name=body.name,
+        description=body.description or "",
+        host_org_id=host_org_id,
+        start_at=body.start_at,
+        end_at=body.end_at,
+        permissions=body.permissions,
+        share=body.share,
+        created_by=user["email"],
+    )
+    await _broadcast({"type": "event_upserted", "event": ev})
+    return ev
+
+
+@api_router.patch("/events/{event_id}")
+async def events_update(event_id: str, body: EventUpdate, user: dict = Depends(get_current_admin)):
+    ev = await event_store.get(event_id)
+    if not ev:
+        raise HTTPException(status_code=404, detail="Event not found")
+    _require_event_host_admin(user, ev)
+    ev = await event_store.update(event_id, body.model_dump(exclude_none=True))
+    await _broadcast({"type": "event_upserted", "event": ev})
+    return ev
+
+
+@api_router.post("/events/{event_id}/participants")
+async def events_add_participant(event_id: str, body: EventParticipant, user: dict = Depends(get_current_admin)):
+    ev = await event_store.get(event_id)
+    if not ev:
+        raise HTTPException(status_code=404, detail="Event not found")
+    _require_event_host_admin(user, ev)
+    # Validate the participant org exists.
+    if not await org_store.get(body.org_id):
+        raise HTTPException(status_code=404, detail="Organization not found")
+    ev = await event_store.add_participant(event_id, body.org_id)
+    await _broadcast({"type": "event_upserted", "event": ev})
+    return ev
+
+
+@api_router.delete("/events/{event_id}/participants/{org_id}")
+async def events_remove_participant(event_id: str, org_id: str, user: dict = Depends(get_current_admin)):
+    ev = await event_store.get(event_id)
+    if not ev:
+        raise HTTPException(status_code=404, detail="Event not found")
+    _require_event_host_admin(user, ev)
+    try:
+        ev = await event_store.remove_participant(event_id, org_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    await _broadcast({"type": "event_upserted", "event": ev})
+    return ev
+
+
+@api_router.post("/events/{event_id}/overlays/{overlay_id}")
+async def events_attach_overlay(event_id: str, overlay_id: str, user: dict = Depends(get_current_admin)):
+    ev = await event_store.get(event_id)
+    if not ev:
+        raise HTTPException(status_code=404, detail="Event not found")
+    _require_event_host_admin(user, ev)
+    if not await overlay_store.get(overlay_id):
+        raise HTTPException(status_code=404, detail="Overlay not found")
+    ev = await event_store.attach_overlay(event_id, overlay_id)
+    await _broadcast({"type": "event_upserted", "event": ev})
+    return ev
+
+
+@api_router.delete("/events/{event_id}/overlays/{overlay_id}")
+async def events_detach_overlay(event_id: str, overlay_id: str, user: dict = Depends(get_current_admin)):
+    ev = await event_store.get(event_id)
+    if not ev:
+        raise HTTPException(status_code=404, detail="Event not found")
+    _require_event_host_admin(user, ev)
+    ev = await event_store.detach_overlay(event_id, overlay_id)
+    await _broadcast({"type": "event_upserted", "event": ev})
+    return ev
+
+
+@api_router.post("/events/{event_id}/start")
+async def events_start(event_id: str, user: dict = Depends(get_current_admin)):
+    ev = await event_store.get(event_id)
+    if not ev:
+        raise HTTPException(status_code=404, detail="Event not found")
+    _require_event_host_admin(user, ev)
+    try:
+        ev = await event_store.start(event_id, user["email"])
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    await _broadcast({"type": "event_started", "event": ev})
+    if shift_log:
+        for org_id in ev.get("participant_org_ids") or []:
+            visible = ev.get("participant_org_ids") or [org_id]
+            await shift_log._log(  # noqa: SLF001
+                "event_started",
+                f"Event '{ev['name']}' started ({len(ev.get('participant_org_ids') or [])} orgs)",
+                actor=user["email"],
+                subject=ev["name"],
+                meta={"event_id": ev["id"], "permissions": ev["permissions"]},
+                org_id=org_id,
+                visible_to_org_ids=visible,
+            )
+    return ev
+
+
+@api_router.post("/events/{event_id}/end")
+async def events_end(event_id: str, user: dict = Depends(get_current_admin)):
+    ev = await event_store.get(event_id)
+    if not ev:
+        raise HTTPException(status_code=404, detail="Event not found")
+    _require_event_host_admin(user, ev)
+    participants_snapshot = ev.get("participant_org_ids") or []
+    try:
+        ev = await event_store.end(event_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    await _broadcast({"type": "event_ended", "event": ev})
+    if shift_log:
+        for org_id in participants_snapshot:
+            await shift_log._log(  # noqa: SLF001
+                "event_ended",
+                f"Event '{ev['name']}' ended",
+                actor=user["email"],
+                subject=ev["name"],
+                meta={"event_id": ev["id"]},
+                org_id=org_id,
+                visible_to_org_ids=participants_snapshot,
+            )
+    return ev
+
+
+@api_router.delete("/events/{event_id}")
+async def events_delete(event_id: str, user: dict = Depends(get_current_admin)):
+    ev = await event_store.get(event_id)
+    if not ev:
+        raise HTTPException(status_code=404, detail="Event not found")
+    _require_event_host_admin(user, ev)
+    try:
+        await event_store.delete(event_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    await _broadcast({"type": "event_removed", "event_id": event_id})
     return {"ok": True}
 
 

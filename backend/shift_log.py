@@ -23,6 +23,8 @@ EVENT_TYPES = (
     "voice",
     "alert",
     "radio_update",
+    "event_started",
+    "event_ended",
 )
 
 
