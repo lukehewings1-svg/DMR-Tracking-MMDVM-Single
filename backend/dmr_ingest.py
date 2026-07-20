@@ -39,6 +39,8 @@ class RepeaterSession:
     last_talkgroup: Optional[int] = None
     packets_relayed_in: int = 0
     packets_relayed_out: int = 0
+    org_id: Optional[str] = None
+    org_password: Optional[bytes] = None
 
 
 PacketHandler = Callable[[dict], Awaitable[None]]
@@ -55,13 +57,17 @@ class HBMaster(asyncio.DatagramProtocol):
         on_voice: VoiceHandler,
         on_emergency: PacketHandler,
         channel_router=None,
+        org_resolver=None,
     ):
-        self.password = password.encode()
+        self.password = password.encode()  # fallback global password
         self.on_gps = on_gps
         self.on_sms = on_sms
         self.on_voice = on_voice
         self.on_emergency = on_emergency
         self.channel_router = channel_router  # RepeaterConfigStore-like
+        # org_resolver(repeater_id) -> Awaitable[Optional[dict]] returning the
+        # org document {id, hb_password, ...} for that repeater, if any.
+        self.org_resolver = org_resolver
         self.sessions: Dict[int, RepeaterSession] = {}
         self.transport: Optional[asyncio.DatagramTransport] = None
         self.stats = {
@@ -91,7 +97,7 @@ class HBMaster(asyncio.DatagramProtocol):
         if data.startswith(b"DMRD") and len(data) >= 55:
             await self._handle_dmrd(data, addr)
         elif data.startswith(b"RPTL") and len(data) >= 8:
-            self._handle_login(data, addr)
+            await self._handle_login(data, addr)
         elif data.startswith(b"RPTK") and len(data) >= 8:
             self._handle_auth(data, addr)
         elif data.startswith(b"RPTC") and len(data) >= 8:
@@ -104,19 +110,47 @@ class HBMaster(asyncio.DatagramProtocol):
             self.sessions.pop(rpt_id, None)
             self._send(b"MSTNAK" + rpt_id.to_bytes(4, "big"), addr)
 
-    def _handle_login(self, data, addr) -> None:
+    async def _handle_login(self, data, addr) -> None:
         rpt_id = int.from_bytes(data[4:8], "big")
         salt = os.urandom(4)
-        self.sessions[rpt_id] = RepeaterSession(repeater_id=rpt_id, address=addr, salt=salt)
+        # Resolve the org for this repeater (if pre-registered). Its
+        # `hb_password` is used to authenticate the RPTK response instead of
+        # the global fallback password.
+        org_id: Optional[str] = None
+        org_password: Optional[bytes] = None
+        if self.org_resolver is not None:
+            try:
+                org = await self.org_resolver(rpt_id)
+                if org:
+                    org_id = org.get("id")
+                    pwd = org.get("hb_password")
+                    if pwd:
+                        org_password = pwd.encode()
+            except Exception:  # noqa: BLE001
+                pass
+        self.sessions[rpt_id] = RepeaterSession(
+            repeater_id=rpt_id,
+            address=addr,
+            salt=salt,
+            org_id=org_id,
+            org_password=org_password,
+        )
         self._send(b"RPTACK" + salt, addr)
-        logger.info("HB login from repeater %s @ %s:%s", rpt_id, addr[0], addr[1])
+        logger.info(
+            "HB login from repeater %s @ %s:%s (org=%s)",
+            rpt_id,
+            addr[0],
+            addr[1],
+            org_id or "-",
+        )
 
     def _handle_auth(self, data, addr) -> None:
         rpt_id = int.from_bytes(data[4:8], "big")
         session = self.sessions.get(rpt_id)
         if not session:
             return
-        expected = hashlib.sha256(session.salt + self.password).digest()
+        pwd = session.org_password or self.password
+        expected = hashlib.sha256(session.salt + pwd).digest()
         if data[8:] == expected:
             session.authenticated = True
             self.stats["repeaters_online"] = sum(
@@ -149,17 +183,22 @@ class HBMaster(asyncio.DatagramProtocol):
             if not is_private:
                 session.last_talkgroup = dst_id
 
-        # ---- Cross-repeater relay (channel-aware) ------------------------ #
-        # Resolve which channel this frame belongs to for the source repeater.
+        # ---- Cross-repeater relay (channel-aware + org-scoped) ----------- #
+        # Voice frames only relay to other MMDVMs in the SAME org (never leak
+        # audio across tenants).
         src_channel_id = f"slot-{slot}"
         if self.channel_router is not None:
             try:
-                src_channel_id = await self.channel_router.channel_for_slot(rpt_id, slot)
+                src_channel_id = await self.channel_router.channel_for_slot(rpt_id, slot) or f"slot-{slot}"
             except Exception:  # noqa: BLE001
                 pass
+        session_org = session.org_id if session else None
         relayed = 0
         for other_id, other in self.sessions.items():
             if other_id == rpt_id or not other.authenticated:
+                continue
+            # Never bridge audio across orgs.
+            if session_org and other.org_id and session_org != other.org_id:
                 continue
             target_slot = slot
             if self.channel_router is not None:
@@ -187,6 +226,7 @@ class HBMaster(asyncio.DatagramProtocol):
                 "is_private": is_private,
                 "talkgroup_id": None if is_private else dst_id,
                 "repeater_id": rpt_id,
+                "org_id": session_org,
                 "stream_id": stream_id,
                 "slot": slot,
                 "channel": slot,
@@ -213,6 +253,7 @@ class HBMaster(asyncio.DatagramProtocol):
                     "is_private": is_private,
                     "talkgroup_id": None if is_private else dst_id,
                     "repeater_id": rpt_id,
+                    "org_id": session_org,
                     "channel": slot,
                     "signature": emer["signature"],
                     "hex_preview": payload[:24].hex(),
@@ -226,6 +267,7 @@ class HBMaster(asyncio.DatagramProtocol):
                 "source": "MMDVM",
                 "source_addr": f"{addr[0]}:{addr[1]}",
                 "repeater_id": rpt_id,
+                "org_id": session_org,
                 "dmr_id": src_id,
                 "dst_id": dst_id,
                 "stream_id": stream_id,
@@ -260,6 +302,7 @@ class HBMaster(asyncio.DatagramProtocol):
                     "is_private": is_private,
                     "talkgroup_id": None if is_private else dst_id,
                     "repeater_id": rpt_id,
+                    "org_id": session_org,
                     "channel": slot,
                 }
             )
@@ -311,9 +354,12 @@ async def start_hb_master(
     on_voice: VoiceHandler,
     on_emergency: PacketHandler,
     channel_router=None,
+    org_resolver=None,
 ) -> tuple[asyncio.DatagramTransport, HBMaster]:
     loop = asyncio.get_running_loop()
-    protocol = HBMaster(password, on_gps, on_sms, on_voice, on_emergency, channel_router)
+    protocol = HBMaster(
+        password, on_gps, on_sms, on_voice, on_emergency, channel_router, org_resolver
+    )
     transport, _ = await loop.create_datagram_endpoint(
         lambda: protocol, local_addr=(bind_host, bind_port)
     )

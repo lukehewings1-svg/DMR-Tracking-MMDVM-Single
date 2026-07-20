@@ -1,0 +1,23 @@
+{
+  "summary": "Multi-org edition testing (backend + frontend). 26/26 backend pytest cases pass covering org CRUD, org isolation, org-link propose->approve->revoke, RBAC (user cannot mutate settings but can list + message + PTT), emergency ack toggle, cross-org dispatch guard, shift-log fan-out, and super_admin regression endpoints. Frontend login as super_admin works; TopBar shows DEFAULT+SUPER badge; SUPER_ADMIN role marker in operator strip; Orgs nav link visible; /admin/orgs renders (data-testid=superadmin-orgs), lists org cards with HB password + user-can-ack-emergency toggle; new-org-modal + new-org-link-modal open correctly; org-links-panel shows existing active link. Radio-detail dialog opens on roster double-click with z-index=2001 (correctly above map). PIN MESSAGES toggle activates persistent messages column. TX-active radio (TESTA_97973f) shows green highlight in roster. No blocking issues found.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_multiorg.py",
+    "/app/test_reports/pytest/multiorg_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py is ~1700+ lines — consider splitting into routers (orgs, org-links, radios, messages, overlays) for maintainability.",
+    "tenancy.visible_org_ids returns an empty list [] as the 'no filter' sentinel for super_admin, then callers must additionally check role != 'super_admin' before treating [] as match-nothing. Current callers do it correctly via _user_visible_orgs which returns None for super_admin, but the dual sentinel (None vs []) is subtle and easy to misuse in future code.",
+    "Cross-org dispatch semantics could be documented in-line: to send to org B from org A, the link direction required is B->A (view+dispatch). Currently only surfaced via can_dispatch_org docstring — worth adding to API docs.",
+    "WebSocket connection warns 'closed before connection established' on initial page load but reconnects; not fatal but worth investigating for reliability."
+  ],
+  "updated_files": ["/app/backend/tests/test_multiorg.py"],
+  "success_rate": {"backend": "100% (26/26)", "frontend": "100% of tested flows"},
+  "test_credentials": "admin@dmrtracker.app / admin123 (super_admin); test-created: admina_<runid>@test.app / pw123456, adminb_<runid>@test.app / pw123456, userb_<runid>@test.app / pw123456",
+  "seed_data_creation": "Each pytest run creates TEST_OrgA_<runid> + TEST_OrgB_<runid>, three users, and various TEST_ prefixed groups/channels/geofences. Orgs are torn down at session end; users + inner docs remain (harmless due to TEST_ prefix + unique run id).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend tests live at /app/backend/tests/test_multiorg.py and are run in parallel via pytest-xdist. All 26 pass in ~9s. Frontend data-testids present: superadmin-orgs, org-links-panel, new-org-btn, new-org-modal, new-org-link-btn, new-org-link-modal, org-badge, pin-messages-toggle. Radio-detail modal uses role='dialog' with z-index 2001 above Leaflet map. WebSocket occasionally errors on first connect but auto-reconnects. Voice PTT + emergency simulation endpoints work synchronously."
+}

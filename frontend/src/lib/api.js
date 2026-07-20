@@ -168,6 +168,37 @@ export const uploadUrl = (relativePath) => {
   return `${BACKEND_URL}${relativePath}`;
 };
 
+// ---- Organizations (super_admin) ----
+export const listOrgs = () => api.get("/orgs").then((r) => r.data);
+export const createOrg = (body) => api.post("/orgs", body).then((r) => r.data);
+export const updateOrg = (id, body) =>
+  api.patch(`/orgs/${id}`, body).then((r) => r.data);
+export const rotateOrgHbPassword = (id) =>
+  api.post(`/orgs/${id}/rotate-hb-password`).then((r) => r.data);
+export const bootstrapOrgAdmin = (id, body) =>
+  api.post(`/orgs/${id}/bootstrap-admin`, body).then((r) => r.data);
+export const deleteOrg = (id) => api.delete(`/orgs/${id}`).then((r) => r.data);
+export const adminSetUserOrg = (id, orgId) =>
+  api.post(`/admin/users/${id}/org`, { org_id: orgId }).then((r) => r.data);
+
+// ---- Org Links (inter-org sharing) ----
+export const listOrgLinks = () => api.get("/org-links").then((r) => r.data);
+export const createOrgLink = (body) =>
+  api.post("/org-links", body).then((r) => r.data);
+export const approveOrgLink = (id) =>
+  api.post(`/org-links/${id}/approve`).then((r) => r.data);
+export const updateOrgLink = (id, body) =>
+  api.patch(`/org-links/${id}`, body).then((r) => r.data);
+export const revokeOrgLink = (id) =>
+  api.post(`/org-links/${id}/revoke`).then((r) => r.data);
+export const deleteOrgLink = (id) =>
+  api.delete(`/org-links/${id}`).then((r) => r.data);
+
+// ---- Role helpers ----
+export const isAdmin = (u) => u?.role === "admin" || u?.role === "super_admin";
+export const isSuperAdmin = (u) => u?.role === "super_admin";
+export const canEditSettings = isAdmin;
+
 export function apiErrorMessage(err) {
   const detail = err?.response?.data?.detail;
   if (!detail) return err.message || "Something went wrong";

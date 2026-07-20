@@ -17,9 +17,10 @@ class GroupStore:
     async def ensure_indexes(self) -> None:
         await self.db.groups.create_index("id", unique=True)
         await self.db.groups.create_index("talkgroup_id")
+        await self.db.groups.create_index("org_id")
 
-    async def seed_defaults(self) -> None:
-        if await self.db.groups.count_documents({}) > 0:
+    async def seed_defaults(self, org_id: str) -> None:
+        if await self.db.groups.count_documents({"org_id": org_id}) > 0:
             return
         defaults = [
             {"name": "Medical", "talkgroup_id": 91, "color": "#ff3b30", "icon": "Ambulance"},
@@ -28,21 +29,28 @@ class GroupStore:
             {"name": "Fire", "talkgroup_id": 94, "color": "#ffb800", "icon": "Flame"},
         ]
         for d in defaults:
-            await self.create(d)
+            await self.create(org_id, d)
 
-    async def list(self) -> List[dict]:
-        cursor = self.db.groups.find({}, {"_id": 0}).sort("name", 1)
+    async def list(self, org_ids: list[str] | None = None) -> List[dict]:
+        q: dict = {}
+        if org_ids is not None:
+            q["org_id"] = {"$in": org_ids} if org_ids else "__none__"
+        cursor = self.db.groups.find(q, {"_id": 0}).sort("name", 1)
         return await cursor.to_list(500)
 
     async def get(self, group_id: str) -> dict | None:
         return await self.db.groups.find_one({"id": group_id}, {"_id": 0})
 
-    async def get_by_talkgroup(self, tg: int) -> dict | None:
-        return await self.db.groups.find_one({"talkgroup_id": int(tg)}, {"_id": 0})
+    async def get_by_talkgroup(self, tg: int, org_id: str | None = None) -> dict | None:
+        q: dict = {"talkgroup_id": int(tg)}
+        if org_id:
+            q["org_id"] = org_id
+        return await self.db.groups.find_one(q, {"_id": 0})
 
-    async def create(self, body: dict) -> dict:
+    async def create(self, org_id: str, body: dict) -> dict:
         doc = {
             "id": str(uuid.uuid4()),
+            "org_id": org_id,
             "name": body["name"],
             "talkgroup_id": int(body.get("talkgroup_id") or 0),
             "color": body.get("color") or "#39ff14",

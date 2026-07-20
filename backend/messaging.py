@@ -134,9 +134,13 @@ class MessageStore:
     async def ensure_indexes(self) -> None:
         await self.db.messages.create_index("timestamp")
         await self.db.messages.create_index("id", unique=True)
+        await self.db.messages.create_index("org_id")
 
-    async def list(self, limit: int = 200) -> List[dict]:
-        cursor = self.db.messages.find({}, {"_id": 0}).sort("timestamp", -1).limit(limit)
+    async def list(self, limit: int = 200, org_ids: list[str] | None = None) -> List[dict]:
+        q: dict = {}
+        if org_ids is not None:
+            q["org_id"] = {"$in": org_ids} if org_ids else "__none__"
+        cursor = self.db.messages.find(q, {"_id": 0}).sort("timestamp", -1).limit(limit)
         return await cursor.to_list(limit)
 
     async def record_inbound(
@@ -148,9 +152,13 @@ class MessageStore:
         talkgroup_id: Optional[int],
         callsign: Optional[str],
         repeater_id: Optional[int],
+        org_id: Optional[str] = None,
+        visible_to_org_ids: Optional[list] = None,
     ) -> dict:
         doc = {
             "id": str(uuid.uuid4()),
+            "org_id": org_id,
+            "visible_to_org_ids": visible_to_org_ids or ([org_id] if org_id else []),
             "direction": "in",
             "text": text,
             "from_dmr_id": from_dmr_id,
@@ -173,6 +181,8 @@ class MessageStore:
         target_dmr_id: Optional[int],
         talkgroup_id: Optional[int],
         sender_email: str,
+        org_id: Optional[str] = None,
+        visible_to_org_ids: Optional[list] = None,
     ) -> dict:
         is_private = target_dmr_id is not None
         dst_id = target_dmr_id if is_private else (talkgroup_id or 0)
@@ -190,6 +200,8 @@ class MessageStore:
 
         doc = {
             "id": str(uuid.uuid4()),
+            "org_id": org_id,
+            "visible_to_org_ids": visible_to_org_ids or ([org_id] if org_id else []),
             "direction": "out",
             "text": text,
             "from_dmr_id": self.server_dmr_id,

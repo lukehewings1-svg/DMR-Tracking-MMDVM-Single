@@ -38,9 +38,10 @@ class SituationalTokenStore:
         await self.col.create_index("id", unique=True)
         await self.col.create_index("token", unique=True)
 
-    async def create(self, *, name: str, group_id: Optional[str], expires_at: Optional[str], created_by: str) -> dict:
+    async def create(self, *, name: str, group_id: Optional[str], expires_at: Optional[str], created_by: str, org_id: Optional[str] = None) -> dict:
         doc = {
             "id": str(uuid.uuid4()),
+            "org_id": org_id,
             "token": secrets.token_urlsafe(24),
             "name": name.strip(),
             "group_id": group_id,
@@ -52,8 +53,11 @@ class SituationalTokenStore:
         doc.pop("_id", None)
         return doc
 
-    async def list(self) -> list[dict]:
-        cur = self.col.find({}, {"_id": 0}).sort("created_at", -1)
+    async def list(self, org_ids: Optional[list[str]] = None) -> list[dict]:
+        q: dict = {}
+        if org_ids is not None:
+            q["org_id"] = {"$in": org_ids} if org_ids else "__none__"
+        cur = self.col.find(q, {"_id": 0}).sort("created_at", -1)
         return await cur.to_list(500)
 
     async def delete(self, token_id: str) -> None:
@@ -68,14 +72,12 @@ class SituationalTokenStore:
         return doc
 
     async def snapshot(self, doc: dict, radios_col, emergencies_col) -> dict:
-        """Build the initial state payload sent to a public viewer.
-
-        Returns *only* the fields safe to expose: dmr_id, callsign, group_id,
-        last position + timestamp, in_emergency flag, icon + color.
-        """
+        """Build the initial state payload sent to a public viewer."""
         radio_query: dict = {}
         if doc.get("group_id"):
             radio_query["group_id"] = doc["group_id"]
+        if doc.get("org_id"):
+            radio_query["org_id"] = doc["org_id"]
         radios = await radios_col.find(
             radio_query,
             {
@@ -83,6 +85,7 @@ class SituationalTokenStore:
                 "dmr_id": 1,
                 "callsign": 1,
                 "group_id": 1,
+                "org_id": 1,
                 "icon": 1,
                 "color": 1,
                 "last_lat": 1,
@@ -96,6 +99,8 @@ class SituationalTokenStore:
         em_query: dict = {"status": "active"}
         if doc.get("group_id"):
             em_query["group_id"] = doc["group_id"]
+        if doc.get("org_id"):
+            em_query["org_id"] = doc["org_id"]
         emergencies = await emergencies_col.find(
             em_query,
             {
@@ -104,6 +109,7 @@ class SituationalTokenStore:
                 "dmr_id": 1,
                 "callsign": 1,
                 "group_id": 1,
+                "org_id": 1,
                 "last_lat": 1,
                 "last_lon": 1,
                 "timestamp": 1,
@@ -114,6 +120,7 @@ class SituationalTokenStore:
             "view": {
                 "name": doc["name"],
                 "group_id": doc.get("group_id"),
+                "org_id": doc.get("org_id"),
                 "expires_at": doc.get("expires_at"),
                 "server_time": _now_iso(),
             },

@@ -18,7 +18,7 @@ import { useAuth } from "@/context/AuthContext";
 export function ChannelFilter({ channels, filter, onFilter, onChanged, embedded }) {
   const { user } = useAuth();
   const [editing, setEditing] = useState(null); // channel object being renamed
-  const isAdmin = user?.role === "admin";
+  const isAdmin = user?.role === "admin" || user?.role === "super_admin";
 
   return (
     <div className={embedded ? "px-3 pb-2" : "border-b border-[#2a2a2a] p-3"} data-testid="channel-filter">

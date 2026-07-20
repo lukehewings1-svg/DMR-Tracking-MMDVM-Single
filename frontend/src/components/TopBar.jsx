@@ -1,7 +1,7 @@
-import { Radio, Wifi, WifiOff } from "lucide-react";
+import { Radio, Wifi, WifiOff, Building2 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 
-export function TopBar({ status, connected, lastEventAt }) {
+export function TopBar({ status, connected, lastEventAt, user }) {
   const listener = status?.listener;
   const running = !!listener?.running;
   const stats = listener?.stats;
@@ -20,9 +20,24 @@ export function TopBar({ status, connected, lastEventAt }) {
             DMR TRACKER
           </div>
           <div className="mono text-xs text-neutral-300">
-            HOMEBREW MASTER · MULTI-BRAND GPS
+            HOMEBREW MASTER · MULTI-ORG
           </div>
         </div>
+        {user?.org_name && (
+          <div
+            data-testid="org-badge"
+            className="ml-2 flex items-center gap-1 border border-[#00f0ff]/40 bg-[#00f0ff]/10 px-2 py-1 mono text-[10px] uppercase tracking-widest text-[#00f0ff]"
+            title={user.role === "super_admin" ? "You are a super admin" : `Your organization: ${user.org_name}`}
+          >
+            <Building2 className="h-3 w-3" />
+            {user.org_name}
+            {user.role === "super_admin" && (
+              <span className="ml-1 border-l border-[#00f0ff]/40 pl-1 text-[#ffb800]">
+                SUPER
+              </span>
+            )}
+          </div>
+        )}
       </div>
 
       <div className="flex items-center gap-6 mono text-[11px]">

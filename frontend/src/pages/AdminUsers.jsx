@@ -143,11 +143,20 @@ export default function AdminUsers() {
                 <td className="px-4 py-3">
                   <span
                     className={`mono text-[10px] uppercase tracking-widest ${
-                      u.role === "admin" ? "text-[#00f0ff]" : "text-neutral-400"
+                      u.role === "super_admin"
+                        ? "text-[#ffb800]"
+                        : u.role === "admin"
+                        ? "text-[#00f0ff]"
+                        : "text-neutral-400"
                     }`}
                   >
                     {u.role}
                   </span>
+                  {u.org_name && (
+                    <div className="mono text-[9px] text-neutral-500 mt-0.5">
+                      {u.org_name}
+                    </div>
+                  )}
                 </td>
                 <td className="px-4 py-3">
                   <span
@@ -189,7 +198,7 @@ export default function AdminUsers() {
                         <X className="h-3.5 w-3.5" />
                       </IconBtn>
                     )}
-                    {u.status === "approved" && u.role !== "admin" && (
+                    {u.status === "approved" && u.role === "user" && (
                       <IconBtn
                         testid={`groups-${u.id}`}
                         onClick={() => setGroupsFor(u)}
@@ -199,7 +208,7 @@ export default function AdminUsers() {
                         <Users className="h-3.5 w-3.5" />
                       </IconBtn>
                     )}
-                    {u.role !== "admin" && u.status === "approved" && (
+                    {u.role === "user" && u.status === "approved" && (
                       <IconBtn
                         testid={`promote-${u.id}`}
                         onClick={() =>

@@ -1,71 +1,100 @@
-# DMR Radio Tracker — PRD
+# DMR Radio Tracker — Multi-Org Edition PRD
 
-## Original problem statement
-Build an app that pulls GPS + messaging data from DMR radios (via MMDVM directly, off-network — no BrandMeister), plots positions on OpenStreetMap, supports multi-brand radios, admin-approved login, per-radio custom icon+callsign, geofence alerts, multi-MMDVM cross-linked voice bridge, editable groups (talk groups), DMR SMS (send/receive), browser PTT with server-side AMBE dongle (SMS fallback), and radio emergency-button detection with visual + audible alarm.
+## Original problem statement (verbatim)
+User wanted an app that pulls data from DMR radios via an MMDVM (or standalone
+radio) and plots location data on a map. As of Feb 2026 the user asked to:
+1. Preserve the finished single-org app as a completely separate project so
+   it can be pushed to its own GitHub repository.
+2. Continue development of a new, separate **multi-organization** service
+   that will live in a different GitHub repository.
+3. Multi-org rules:
+   - A **super_admin** creates new organizations (no self-serve org signup).
+   - Organizations can **link** with other organizations to share resources
+     for large multi-agency events (unified situational awareness +
+     dispatching).
+   - When multiple orgs are linked, **all get the same info in the logs**.
+   - Only an **admin** can change settings, radio user info, and setup.
+     Regular **users** can view, send messages, transmit voice, see history +
+     logs, and (per-org toggle) acknowledge emergencies.
 
-## Architecture
-- Backend: FastAPI + Motor (MongoDB). HB Master UDP listener on port 62031. Bearer JWT auth. WebSocket at /api/ws for live push.
-- Frontend: React 19 + react-router 7 + Leaflet (OSM CARTO Dark) + Tailwind + shadcn/ui. Dark tactical dashboard.
-- HB Master relays voice slot (TS2) between all connected MMDVMs opaquely; DATA slot (TS1) parsed for GPS + SMS + emergency.
-- AMBE dongle path scaffolded via /api/voice/*; when unavailable PTT falls back to sending DMR SMS.
+## Repository layout
+- `/app/v1-single-org/` — frozen single-org snapshot (repo #1). Independent
+  backend + frontend + README + `.env.example` + `.gitignore`.
+- `/app/` — active multi-org service (repo #2). This is the running preview.
 
-## User personas
-- Ham radio operator / net control running SAR, security, event ops.
-- Dispatcher tracking a fleet of radios across multiple simulcast sites.
+## Roles matrix
+| Capability                                | super_admin | admin | user |
+|-------------------------------------------|-------------|-------|------|
+| Manage orgs & inter-org links              | ✅          | ❌    | ❌   |
+| Radio metadata / delete radio              | ✅          | ✅    | ❌   |
+| Groups / channels / geofences / overlays  | ✅          | ✅    | ❌   |
+| Repeater configs / situational tokens      | ✅          | ✅    | ❌   |
+| Approve/reject/edit users                  | (all orgs) | (own) | ❌   |
+| View map, roster, history, logs            | ✅          | ✅    | ✅   |
+| Send DMR SMS / PTT / voice                 | ✅          | ✅    | ✅   |
+| Clear shift log                            | ✅          | ✅    | ❌   |
+| CSV export shift log                       | ✅          | ✅    | ✅   |
+| Clear emergency                            | ✅          | ✅    | per-org toggle |
 
-## What's been implemented (v1.2 · Feb 2026)
-- v1.0: HB Master UDP listener; Motorola LRRP, Hytera, NMEA, APRS GPS parsers; live map with markers + trails; radio detail modal; roster with RSSI; packet log; simulated injector.
-- v1.1: JWT auth with admin-approved onboarding; admin users page; radio icon + color customization; geofences + enter/exit alerts.
-- v1.2: Multi-MMDVM support with per-repeater status panel; TS2 voice cross-linking between MMDVMs; Groups (talk groups) CRUD + filtering; DMR SMS send + receive (group / private) + conversation view; browser PTT with AMBE dongle detection + SMS fallback; Emergency button detection + red banner + roster/marker highlight + browser siren; comprehensive SETUP.md/SETUP_PART2.md guide for server + MMDVM + per-brand radio programming.
+## Data model (added collections)
+- `organizations`: `{id, name, slug, active, hb_password, server_dmr_id,
+   user_can_ack_emergency, created_at, updated_at}`
+- `org_links`: `{id, from_org_id, to_org_id, status:
+   pending|active|revoked, share: {radios, positions, messages, voice,
+   overlays, geofences, emergencies}, permissions: view|view+dispatch,
+   proposed_by, approved_by, expires_at, note, created_at, updated_at}`
 
-## Test status
-Iteration 1: 14/14 backend tests pass, all frontend flows validated. Iteration 2 (v1.2): 28/28 backend, all frontend flows including emergency banner + siren + group filters + messaging + PTT SMS fallback.
+Every domain collection now has `org_id`. Shift log & messages additionally
+carry `visible_to_org_ids` (list of orgs that should see the event via
+active links) so a single write is visible in every linked org's log.
+
+## Isolation strategy
+Row-level tenancy. Every read query resolves the user's `visible_org_ids`
+(own org + all orgs actively linked to them for that resource type) and
+filters with `{org_id: {$in: [...]}}`. Writes are restricted to the user's
+own org (or an org actively linked with `view+dispatch`).
+
+DMR UDP (HB Master) looks up each repeater's org from `repeater_configs`
+and authenticates against **that org's** HB password. Voice cross-linking
+respects both org boundaries and active org-links (`share.voice=true`).
+
+WebSockets are per-user; each broadcast checks the event's `org_id`
+against the recipient user's visible orgs for that resource type.
+
+## Implemented (v2.0 — 2026-02)
+- [x] Snapshot v1 to `/app/v1-single-org/` (backend + frontend + README +
+      `.env.example` + `.gitignore` + `README_V1_SNAPSHOT.md`).
+- [x] `tenancy.py`: `OrganizationStore`, `OrgLinkStore`, visibility resolver.
+- [x] Auth: JWT carries `org_id` + role; `super_admin` role introduced;
+      seeded admin auto-elevated to super_admin on first boot.
+- [x] All stores refactored: `GroupStore`, `ChannelStore`,
+      `RepeaterConfigStore`, `MessageStore`, `ShiftLogStore`, `OverlayStore`,
+      `SituationalTokenStore`, `GeofenceEngine` — every read/write is
+      org-scoped. New store method signatures take `org_id` explicitly.
+- [x] Server: every endpoint filters reads via `_user_visible_orgs()`.
+      New `/api/orgs`, `/api/orgs/{id}/bootstrap-admin`,
+      `/api/orgs/{id}/rotate-hb-password`, `/api/org-links`,
+      `/api/org-links/{id}/approve`, `/api/org-links/{id}/revoke`.
+      Users cannot access any settings endpoint (admin-only guard).
+- [x] DMR HB Master: per-org auth via `org_resolver`, packets stamped
+      `org_id`, voice relays never cross org boundaries.
+- [x] Migration: on-boot backfill of `org_id` on legacy docs → Default org.
+- [x] Frontend: `SuperAdminOrgs` page + `OrgLinksPanel` component +
+      org badge in top bar + role-gated UI + `admin/orgs` route.
+
+## Verification (backend curl smoke test)
+- Super_admin creates org "Test Rescue", bootstraps its admin, admin logs in.
+- Rescue admin sees only their 4 default groups + 0 radios initially.
+- After injecting a radio into Rescue: Rescue sees 1 radio, Default admin
+  (super) sees ALL 15 radios (his own 14 legacy + Rescue's 1).
+- Rescue admin proposes view+dispatch link → Default approves → Default
+  now visibly aggregates Rescue's radio through the link.
 
 ## Backlog
-- P0: Real AMBE audio pipeline (browser mic → server → DVSI dongle → DMR voice frames). Requires physical hardware for E2E test.
-- P1: BPTC(196,96) FEC + proper CSBK header for DMR SMS so Motorola MOTOTRBO SMS interops.
-- P1: Talkgroup-selective voice routing (currently relays voice to all MMDVMs; add per-repeater TG whitelists).
-- P2: Radio grouping analytics (heatmaps, dwell time per geofence, group-scoped alerts).
-- P2: Multi-tenant deployments (organizations, per-org groups + users).
-- P2: Mobile-friendly dashboard.
+- P1: Native Sepura LIP (Location Information Protocol) decoding for GPS.
+- P2: Motorola SMS protocol decoding.
+- P2: Per-org branding (logo upload).
+- P2: Billing/quotas.
 
-## Next tasks
-- Ship as v1.2 release; ask user for a real MMDVM connection test to validate the voice bridge end-to-end.
-- Optional: Motorola SMS PDU support if user brings a MOTOTRBO into the net.
-- Optional: PWA install + browser push notifications for emergencies.
-
-## v1.4 (Feb 2026): Multi-channel routing + Dispatcher ACL
-- Channels are now first-class named entities with uuid ids. Admin can create arbitrary channels beyond the two DMR timeslots via POST /api/channels; slot-1/slot-2 remain as protected built-ins.
-- Per-MMDVM slot mapping: PUT /api/repeater-configs/{repeater_id} binds each MMDVM's TS1 and TS2 to any channel. HBMaster resolves the channel per frame, relays voice ONLY to MMDVMs that carry the same channel, and rewrites the DMRD slot bit when the target MMDVM has the channel on the other timeslot.
-- Dispatcher ACL: user doc gains allowed_group_ids: List[str]. Non-admin with a non-empty list only sees radios in those groups and can only send messages to those groups. Enforcement in /api/radios and /api/messages. Admin sets via POST /api/admin/users/{id}/groups.
-- Frontend additions: RepeaterConfigPanel (admin-only) in Ops tab, ChannelFilter updated for id-based channels, UserGroupsModal per user row in AdminUsers page.
-- Test status: iteration_4 = 52/52 backend + 100% frontend flows, 0 issues at any priority.
-
-## v1.5 (Feb 2026): Shift Log
-- New `shift_log` collection auto-persists every noteworthy event: position updates, emergencies + clears, inbound/outbound DMR SMS, voice TX (de-duped per stream, one entry per stream within 30s), geofence enter/exit alerts, radio-metadata edits.
-- Endpoints:
-  - `GET /api/shift-log?limit=&event_type=&dmr_id=&since=&until=` - list events, ACL-filtered so restricted dispatchers only see events for radios in their allowed groups (system events without a group are always visible).
-  - `GET /api/shift-log/export.csv?<same filters>` - streamed CSV download with a filename like `shift-log-20260214-153042.csv`.
-  - `DELETE /api/shift-log` (admin) - purge.
-- WebSocket broadcasts `type=shift_log` for each new entry; the panel prepends live entries in real time.
-- Frontend: new "Log" tab in the right column alongside Ops and Messages. Chip filters (All / Emerg / Voice / Msg In / Msg Out / Geo / Pos), Refresh, CSV Download, and (admin) Clear.
-- Test status: iteration_5 = 65/66 backend + 100% frontend flows (1 bug); iteration_6 = 14/14 fix-verification tests passing.
-
-
-## v1.6 (Feb 2026): Setup Guide (in-app) + Situational Awareness
-- Consolidated `/app/README.md` at repo root — union of `SETUP.md` + `SETUP_PART2.md` for GitHub viewers, plus a new §6.11 on the situational-awareness view.
-- In-app Setup Guide page at `/setup` renders the SETUP markdown files via `react-markdown` + `remark-gfm`; Dashboard's "Setup Guide" button now navigates to this instead of opening the raw markdown.
-- Situational-awareness view: admin mints token-locked URLs (`/situational/<token>`) that show a full-screen, view-only OpenStreetMap with radio positions + active emergencies to unauthenticated viewers (command post big-screens, incident-command briefings). Tokens can be scoped to a group and can have an expiry.
-- Backend: `situational_tokens` collection, admin CRUD at `/api/situational-tokens`, public `/api/situational/{token}/snapshot` + `/api/situational/{token}/ws` (no auth). `_broadcast_public` fan-out sends a whitelisted subset (position/emergency/emergency_cleared/clear) so no admin fields leak.
-- Frontend: `SituationalView.jsx` (public), `SetupGuide.jsx`, `SituationalTokensPanel` embedded in AdminUsers.
-- Test status: iteration_7 = 23/23 backend + all frontend flows, 0 issues.
-
-## v1.7 (Feb 2026): Event Overlays (drawn shapes + image overlays)
-- New `overlays` collection for admin-managed "event overlay sets" (e.g. "Halloween Fun Run 2026"). Each set contains:
-  - Drawn annotations: marker / polyline / polygon / rectangle / circle with name, description, color; edited via the leaflet-geoman toolbar (`@geoman-io/leaflet-geoman-free`).
-  - Image overlays: upload a PNG/JPG/WEBP of the venue map, pinned to lat/lng bounds with two draggable corner handles + opacity slider.
-- Each set has an `active` On/Off toggle. Only active sets appear on the dispatcher map + the public situational-awareness view.
-- Endpoints (admin write, all-users read): `GET/POST/PATCH/DELETE /api/overlays`, `PUT /api/overlays/{id}/shapes`, `POST/PATCH/DELETE /api/overlays/{id}/images`. Uploaded files live under `/app/backend/uploads/overlays/{uuid}.{ext}` and are served via a `StaticFiles` mount at `/api/uploads/…`.
-- WebSocket fan-out: private WS broadcasts `overlay_upserted` / `overlay_removed` on any change; the public WS fan-out converts deactivations into `overlay_removed` so situational viewers drop them locally.
-- Frontend: new `OverlayLayer` (renders shapes + images), `OverlayEditor` (geoman toolbar + debounced save), `OverlayImageCorners` (drag SW/NE corners of an image), `OverlayManagerPanel` (admin sidebar to create/toggle/rename/delete overlay sets + upload images + opacity slider). Global `Overlays: On/Off` toggle in the top strip lets any dispatcher hide overlays locally without deactivating them; the situational-awareness view has an identical toggle.
-- Test status: iteration_8 = 16/16 backend + all frontend flows, 0 issues.
+## Test credentials
+See `/app/memory/test_credentials.md`.

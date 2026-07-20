@@ -114,7 +114,8 @@ export default function Dashboard() {
   }, [lastOverlayEvent]);
 
   const editingOverlay = overlays.find((o) => o.id === editingOverlayId) || null;
-  const isAdmin = user?.role === "admin";
+  const isAdmin = user?.role === "admin" || user?.role === "super_admin";
+  const isSuperAdmin = user?.role === "super_admin";
 
   // Set of DMR IDs currently transmitting voice — powers the map + roster
   // "live TX" pulse.
@@ -626,6 +627,17 @@ export default function Dashboard() {
           >
             <ShieldCheck className="h-3 w-3" /> Users
           </Link>
+          {isSuperAdmin && (
+            <Link
+              data-testid="nav-orgs"
+              to="/admin/orgs"
+              className={`items-center gap-1 border border-[#00f0ff]/40 px-2 py-1 text-[#00f0ff] hover:border-[#00f0ff] ${
+                narrow ? "hidden" : "flex"
+              }`}
+            >
+              <ShieldCheck className="h-3 w-3" /> Orgs
+            </Link>
+          )}
           <button
             data-testid="nav-clear"
             onClick={handleClear}
@@ -666,7 +678,7 @@ export default function Dashboard() {
       data-breakpoint={bp}
       className="flex h-screen w-screen flex-col overflow-hidden bg-[#050505]"
     >
-      <TopBar status={status} connected={connected} lastEventAt={lastEventAt} />
+      <TopBar status={status} connected={connected} lastEventAt={lastEventAt} user={user} />
 
       {/* Session strip */}
       <div className="flex items-center justify-between gap-2 border-b border-[#2a2a2a] bg-[#0a0a0a] px-2 py-1.5 mono text-[11px] md:px-4">
@@ -734,6 +746,15 @@ export default function Dashboard() {
                 >
                   <ShieldCheck className="h-4 w-4" /> Users
                 </Link>
+                {isSuperAdmin && (
+                  <Link
+                    to="/admin/orgs"
+                    onClick={() => setMobileMenuOpen(false)}
+                    className="flex items-center gap-2 border border-[#00f0ff]/40 px-3 py-2 text-[#00f0ff] hover:border-[#00f0ff]"
+                  >
+                    <ShieldCheck className="h-4 w-4" /> Organizations
+                  </Link>
+                )}
                 <button
                   onClick={() => {
                     setMobileMenuOpen(false);

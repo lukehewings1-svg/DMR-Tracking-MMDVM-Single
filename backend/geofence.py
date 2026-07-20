@@ -32,13 +32,17 @@ class GeofenceEngine:
         self.db = db
         self.broadcast = broadcast
 
-    async def list_geofences(self) -> List[dict]:
-        cursor = self.db.geofences.find({}, {"_id": 0}).sort("created_at", -1)
+    async def list_geofences(self, org_ids: list[str] | None = None) -> List[dict]:
+        q: dict = {}
+        if org_ids is not None:
+            q["org_id"] = {"$in": org_ids} if org_ids else "__none__"
+        cursor = self.db.geofences.find(q, {"_id": 0}).sort("created_at", -1)
         return await cursor.to_list(200)
 
-    async def create(self, body: dict) -> dict:
+    async def create(self, body: dict, org_id: str | None = None) -> dict:
         doc = {
             "id": str(uuid.uuid4()),
+            "org_id": org_id,
             "name": body["name"],
             "lat": float(body["lat"]),
             "lon": float(body["lon"]),
@@ -54,12 +58,18 @@ class GeofenceEngine:
         await self.db.geofences.delete_one({"id": geofence_id})
         await self.db.fence_state.delete_many({"fence_id": geofence_id})
 
-    async def alerts(self, limit: int = 100) -> List[dict]:
-        cursor = self.db.alerts.find({}, {"_id": 0}).sort("timestamp", -1).limit(limit)
+    async def alerts(self, limit: int = 100, org_ids: list[str] | None = None) -> List[dict]:
+        q: dict = {}
+        if org_ids is not None:
+            q["org_id"] = {"$in": org_ids} if org_ids else "__none__"
+        cursor = self.db.alerts.find(q, {"_id": 0}).sort("timestamp", -1).limit(limit)
         return await cursor.to_list(limit)
 
-    async def clear_alerts(self) -> None:
-        await self.db.alerts.delete_many({})
+    async def clear_alerts(self, org_ids: list[str] | None = None) -> None:
+        q: dict = {}
+        if org_ids is not None:
+            q["org_id"] = {"$in": org_ids} if org_ids else "__none__"
+        await self.db.alerts.delete_many(q)
 
     async def evaluate(self, packet: dict) -> None:
         """Called from record_packet with the freshly recorded position."""
@@ -67,7 +77,11 @@ class GeofenceEngine:
         if lat is None or lon is None:
             return
         dmr_id = packet["dmr_id"]
-        fences = await self.db.geofences.find({}, {"_id": 0}).to_list(200)
+        pkt_org = packet.get("org_id")
+        q: dict = {}
+        if pkt_org:
+            q["org_id"] = pkt_org
+        fences = await self.db.geofences.find(q, {"_id": 0}).to_list(200)
         for f in fences:
             inside = haversine_m(lat, lon, f["lat"], f["lon"]) <= f["radius_m"]
             state = await self.db.fence_state.find_one(
@@ -87,6 +101,7 @@ class GeofenceEngine:
             if event and f.get("alert_on", "both") in (event, "both"):
                 alert = {
                     "id": str(uuid.uuid4()),
+                    "org_id": f.get("org_id") or pkt_org,
                     "fence_id": f["id"],
                     "fence_name": f["name"],
                     "dmr_id": dmr_id,

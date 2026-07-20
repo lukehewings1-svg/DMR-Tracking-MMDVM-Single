@@ -6,7 +6,10 @@ import { useAuth } from "@/context/AuthContext";
 
 export function EmergencyBanner({ emergencies, onFocus, onCleared }) {
   const { user } = useAuth();
-  const isAdmin = user?.role === "admin";
+  // Regular users can also acknowledge emergencies when the org allows it —
+  // the backend enforces the actual policy (org.user_can_ack_emergency), the
+  // UI just shows the button and surfaces the error on failure if disabled.
+  const isAdmin = user?.role === "admin" || user?.role === "super_admin";
   if (!emergencies || emergencies.length === 0) return null;
 
   const handleClear = async (id) => {

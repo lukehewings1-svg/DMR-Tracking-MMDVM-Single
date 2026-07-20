@@ -46,10 +46,12 @@ class UserPublic(BaseModel):
     status: str
     created_at: str
     allowed_group_ids: list[str] = []
+    org_id: Optional[str] = None
+    org_name: Optional[str] = None
 
 
 class RolePayload(BaseModel):
-    role: str = Field(pattern="^(admin|user)$")
+    role: str = Field(pattern="^(super_admin|admin|user)$")
 
 
 # --------------------------------------------------------------------------- #
@@ -70,11 +72,12 @@ def _secret() -> str:
     return os.environ["JWT_SECRET"]
 
 
-def create_access_token(user_id: str, email: str, role: str) -> str:
+def create_access_token(user_id: str, email: str, role: str, org_id: Optional[str] = None) -> str:
     payload = {
         "sub": user_id,
         "email": email,
         "role": role,
+        "org_id": org_id,
         "exp": datetime.now(timezone.utc) + ACCESS_TOKEN_TTL,
         "iat": datetime.now(timezone.utc),
         "type": "access",
@@ -91,6 +94,8 @@ def to_public(user: dict) -> dict:
         "status": user.get("status", "approved"),
         "created_at": user.get("created_at"),
         "allowed_group_ids": user.get("allowed_group_ids") or [],
+        "org_id": user.get("org_id"),
+        "org_name": user.get("org_name"),
     }
 
 
@@ -175,15 +180,25 @@ async def get_current_user(request: Request) -> dict:
 
 
 async def get_current_admin(user: dict = Depends(get_current_user)) -> dict:
-    if user.get("role") != "admin":
+    """Admin OR super_admin can access these endpoints. Regular 'user' cannot."""
+    if user.get("role") not in ("admin", "super_admin"):
         raise HTTPException(status_code=403, detail="Admin only")
+    return user
+
+
+async def get_current_super_admin(user: dict = Depends(get_current_user)) -> dict:
+    if user.get("role") != "super_admin":
+        raise HTTPException(status_code=403, detail="Super admin only")
     return user
 
 
 # --------------------------------------------------------------------------- #
 # Seed admin
 # --------------------------------------------------------------------------- #
-async def seed_admin() -> None:
+async def seed_admin(default_org_id: Optional[str] = None) -> None:
+    """Seed the initial super_admin user. In multi-tenant mode, they belong to
+    the Default org but their `super_admin` role transcends org boundaries.
+    """
     email = os.environ.get("ADMIN_EMAIL", "admin@example.com").lower()
     password = os.environ.get("ADMIN_PASSWORD", "admin123")
     existing = await _db().users.find_one({"email": email})
@@ -194,22 +209,24 @@ async def seed_admin() -> None:
                 "email": email,
                 "password_hash": hash_password(password),
                 "callsign": "ADMIN",
-                "role": "admin",
+                "role": "super_admin",
                 "status": "approved",
+                "org_id": default_org_id,
                 "created_at": datetime.now(timezone.utc).isoformat(),
             }
         )
     else:
-        # Rehash if the .env password changed OR was ever stored with an
-        # invalid hash. Also ensure the admin is approved.
         needs_pw_reset = not verify_password(password, existing.get("password_hash", ""))
-        update = {}
+        update: dict = {}
         if needs_pw_reset:
             update["password_hash"] = hash_password(password)
         if existing.get("status") != "approved":
             update["status"] = "approved"
-        if existing.get("role") != "admin":
-            update["role"] = "admin"
+        # Elevate legacy 'admin' to 'super_admin' on first multi-tenant boot.
+        if existing.get("role") not in ("super_admin",):
+            update["role"] = "super_admin"
+        if default_org_id and not existing.get("org_id"):
+            update["org_id"] = default_org_id
         if update:
             await _db().users.update_one({"email": email}, {"$set": update})
 
@@ -223,7 +240,7 @@ async def ensure_indexes() -> None:
 # --------------------------------------------------------------------------- #
 # Endpoint helpers used by server.py
 # --------------------------------------------------------------------------- #
-async def register_user(body: RegisterPayload) -> dict:
+async def register_user(body: RegisterPayload, default_org_id: Optional[str] = None) -> dict:
     email = body.email.lower()
     if await get_user_by_email(email):
         raise HTTPException(status_code=409, detail="Email already registered")
@@ -234,6 +251,7 @@ async def register_user(body: RegisterPayload) -> dict:
         "callsign": body.callsign,
         "role": "user",
         "status": "pending",
+        "org_id": default_org_id,
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
     await _db().users.insert_one(user)
@@ -257,5 +275,7 @@ async def login_user(body: LoginPayload, ip: str) -> dict:
     if user.get("status") == "rejected":
         raise HTTPException(status_code=403, detail="Your account has been rejected.")
     await _clear_failed(ident)
-    token = create_access_token(user["id"], user["email"], user.get("role", "user"))
+    token = create_access_token(
+        user["id"], user["email"], user.get("role", "user"), user.get("org_id")
+    )
     return {"token": token, "user": to_public(user)}

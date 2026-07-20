@@ -39,7 +39,7 @@ const FILTERS = [
 
 export function ShiftLogPanel({ liveEntry }) {
   const { user } = useAuth();
-  const isAdmin = user?.role === "admin";
+  const isAdmin = user?.role === "admin" || user?.role === "super_admin";
   const [entries, setEntries] = useState([]);
   const [filter, setFilter] = useState(null);
   const [loading, setLoading] = useState(false);
