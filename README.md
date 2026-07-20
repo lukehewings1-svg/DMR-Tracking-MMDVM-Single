@@ -14,6 +14,7 @@
 
 Quick links:
 - Fastest possible install → [`§0`](#0-quick-install-on-a-raspberry-pi-one-command)
+- Running locally on a laptop (macOS / Windows / Linux) → [`§3.6`](#36-running-locally-on-a-laptop-macos--windows--linux)
 - Point your MMDVM at the server → [`§4`](#4-mmdvm-setup)
 - Program the radios → [`§5`](#5-radio-programming-by-brand)
 - Day-to-day app usage → [`§6`](#6-app-usage)
@@ -107,6 +108,8 @@ manual-install / per-brand programming.
    * 5.4 Anytone / BTECH (AT-D878, DMR-6X2, D578)
    * 5.5 TYT / Retevis (MD-380, MD-UV380, RT3S)
    * 5.6 Radioddity (GD-77, GD-88, etc.)
+   * 5.7 Sepura DMR (SC20 / SC21 / SBP8000 series)
+   * 5.8 Mapping channels to MMDVM timeslots (in the app)
 6. [App usage — Groups, Messaging, Tracking, Emergencies](#6-app-usage)
 7. [Optional AMBE dongle for web PTT](#7-ambe-dongle-for-web-ptt)
 8. [Troubleshooting](#8-troubleshooting)
@@ -140,10 +143,13 @@ manual-install / per-brand programming.
                                           Web dashboard (browsers)
 ```
 
-* Every radio's GPS is decoded on-server and plotted on OpenStreetMap.
-* **Each DMR timeslot is a full independent channel** carrying voice + GPS +
-  SMS + emergencies. So a single MMDVM carries **two channels at once** (one
-  per timeslot).
+* Every radio's GPS is decoded on-server and plotted on OpenStreetMap (with
+  four selectable base layers: Dark / Streets / Satellite / Terrain, plus a
+  toggleable street-labels overlay for a hybrid view).
+* **Unified channels** — voice, GPS, SMS and emergencies all ride on the
+  **same** talkgroup/timeslot. Radios only need ONE channel per group (no
+  separate DATA vs. VOICE channels). Which channel sits on TS1 vs. TS2 on each
+  MMDVM is configured *in the app*, not at the radio.
 * Voice frames on both timeslots are relayed across every connected MMDVM,
   turning the whole set into a distributed simulcast for radios that select
   that talkgroup.
@@ -238,9 +244,10 @@ HB_BIND_HOST="0.0.0.0"
 HB_BIND_PORT="62031"
 HB_PASSWORD="PASSWORD"          # match this in each MMDVMHost DMR-Network config
 
-# Slot layout - each timeslot is a full independent channel carrying voice
-# + GPS + SMS + emergencies. Voice frames on both slots are relayed opaquely
-# across every connected MMDVM.
+# Slot layout — retained for legacy purposes. In the unified model, voice, GPS,
+# SMS and emergencies all ride on the same channel/timeslot as picked by the
+# admin per-MMDVM in the app (Ops → MMDVM Channel Bindings). Voice frames on
+# either slot are relayed opaquely across every connected MMDVM.
 VOICE_SLOT="2"
 DATA_SLOT="1"
 
@@ -294,6 +301,114 @@ sudo ufw allow 8001/tcp
 
 Custom-JWT auth, admin-approved onboarding. Nothing else can talk to the API
 without a valid Bearer token.
+
+### 3.6 Running locally on a laptop (macOS / Windows / Linux)
+
+You don't need a Raspberry Pi or a VPS — a laptop on the same LAN as your
+MMDVM works perfectly and is the fastest way to try the app.
+
+**Networking picture:**
+
+```
+   [Radio]  ⇄  [MMDVM (Pi-Star / OpenSPOT / etc.)]  ─UDP 62031─▶  [Your laptop]
+                                                                   running this app
+```
+
+Both the MMDVM and the laptop must be on the same LAN (either both wired,
+both on Wi-Fi, or a mix — as long as they can reach each other's private IP).
+
+#### macOS
+
+```bash
+# 1. Install deps
+brew install python@3.11 node@20 mongodb-community git yarn
+
+# 2. Start Mongo as a service
+brew services start mongodb-community
+
+# 3. Clone + set up (same as §3.2)
+git clone <this repo> ~/dmr-tracker && cd ~/dmr-tracker/backend
+python3.11 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+cp .env.example .env       # edit .env — see §3.3
+
+# 4. Run backend (foreground, easy to Ctrl-C)
+uvicorn server:app --host 0.0.0.0 --port 8001
+
+# 5. In a second terminal, run frontend
+cd ~/dmr-tracker/frontend
+echo 'REACT_APP_BACKEND_URL=http://LAPTOP-LAN-IP:8001' > .env
+yarn install && yarn start
+```
+
+**Firewall:** macOS's application firewall may prompt on first launch to allow
+Python to accept incoming connections — click **Allow**. To confirm inbound
+UDP 62031 is reachable:
+
+```bash
+# On the laptop:
+sudo lsof -iUDP:62031        # should list a Python process bound to *:62031
+# Or from another machine:
+nc -uz LAPTOP-LAN-IP 62031   # blank line = reachable
+```
+
+If UDP is blocked, System Settings → Network → Firewall → Options → set the
+Python interpreter to *Allow incoming connections*.
+
+**Finding your laptop's LAN IP:**
+
+```bash
+ipconfig getifaddr en0          # Wi-Fi
+ipconfig getifaddr en1          # Ethernet dongle (usually)
+```
+
+Point every MMDVMHost at that IP in §4.1.
+
+#### Windows
+
+Recommended path is **WSL2** (Ubuntu). Under WSL2, follow the Linux/Raspberry
+Pi steps below. The one gotcha:
+
+* WSL2 by default is on a virtual NIC — UDP 62031 will not reach your MMDVM
+  without a small port-forward. Open PowerShell **as admin** and run:
+
+  ```powershell
+  # Replace 172.20.10.5 with the WSL Ubuntu VM's IP (run `ip addr` inside WSL)
+  netsh interface portproxy add v4tov4 listenport=62031 listenaddress=0.0.0.0 `
+      connectport=62031 connectaddress=172.20.10.5 protocol=udp
+
+  # And open the Windows firewall for it
+  New-NetFirewallRule -DisplayName "DMR HB Master" -Direction Inbound -Action Allow `
+      -Protocol UDP -LocalPort 62031
+  ```
+
+  Now the MMDVM can point at the **Windows host's** LAN IP and traffic reaches
+  the WSL VM.
+
+Native Windows (no WSL) also works: install Python 3.11 from python.org,
+Node 20+ LTS, MongoDB Community, then follow the macOS steps verbatim. Add a
+Windows Firewall inbound rule for UDP 62031.
+
+#### Linux laptop
+
+Identical to the Raspberry Pi / server install in §3.2. Open the firewall as
+in §3.4 and you're done.
+
+#### Common laptop caveats
+
+* **Sleep / lid close:** the app won't receive packets while the laptop is
+  asleep. In macOS: `System Settings → Battery → Options → Prevent
+  automatic sleeping on power adapter when the display is off`. In Linux:
+  `sudo systemctl mask sleep.target suspend.target hibernate.target hybrid-sleep.target`.
+* **DHCP-reassigned IPs:** if your laptop's IP changes, every MMDVM will
+  silently stop connecting. Either pin the laptop's IP with a DHCP
+  reservation in your router, or use its mDNS hostname
+  (`http://your-laptop.local:8001/` on macOS / most modern Linux).
+* **Public Wi-Fi:** doesn't work — most public networks block LAN-to-LAN UDP.
+  Use a home / office / hotspot network.
+* **VPN split-tunnel gotchas:** if the laptop's default route is through a
+  VPN, the MMDVM on your LAN won't be able to reach it. Either disable the
+  VPN or configure a route so LAN traffic bypasses it.
 
 ---
 
@@ -360,21 +475,29 @@ the chosen talkgroup.
 This section covers the **minimum** you need for each brand. Every brand has
 its own CPS (Customer Programming Software) but the concepts map 1:1.
 
-### 5.1 Universal channel plan
+### 5.1 Universal channel plan (unified: one channel per group)
 
-Regardless of brand you'll create the following channels (values are examples —
+Voice, GPS, SMS and emergencies all ride on the **same** talkgroup/timeslot in
+this app — you do **not** need separate DATA and VOICE channels the way older
+DMR-network setups required. Radios only need **one channel per group** they
+belong to.
+
+Regardless of brand you'll create one channel per group (values are examples —
 frequencies must match what your MMDVM is TX/RX-ing on):
 
 | Channel name | Frequency (RX/TX) | TS | TG | Purpose |
 |---|---|---|---|---|
-| MED-VOICE | 438.500 MHz | 2 (voice slot) | 91 (Medical group) | Talk on the Medical group |
-| MED-DATA  | 438.500 MHz | 1 (data slot)  | 91 (Medical group) | GPS + messaging for Medical |
-| SEC-VOICE | 438.500 MHz | 2 | 92 (Security) | Voice for Security |
-| SEC-DATA  | 438.500 MHz | 1 | 92 (Security) | Data for Security |
-| OPS-VOICE | 438.500 MHz | 2 | 93 (Ops) | Voice for Ops |
-| OPS-DATA  | 438.500 MHz | 1 | 93 (Ops) | Data for Ops |
+| MED  | 438.500 MHz | 1 *(any)* | 91 (Medical) | Voice + GPS + SMS + emergency for Medical |
+| SEC  | 438.500 MHz | 1 *(any)* | 92 (Security) | Voice + GPS + SMS + emergency for Security |
+| OPS  | 438.500 MHz | 2 *(any)* | 93 (Ops) | Voice + GPS + SMS + emergency for Ops |
 
-Every radio only needs the channels for the group(s) it belongs to.
+**Which timeslot each channel uses on each MMDVM is set inside the app** — go
+to **Ops → MMDVM Channel Bindings** (admin only) and drop each of your named
+channels onto TS1 or TS2 of every connected MMDVM. Frames arriving on the
+"wrong" slot are re-emitted on the target slot automatically when they cross
+between MMDVMs, so radios can be programmed however is convenient.
+
+Every radio only needs the channel(s) for the group(s) it belongs to.
 
 Also configure **each radio with a unique DMR ID** (any 7-digit number,
 consistent across your network — the app will pick that up as the radio's
@@ -384,8 +507,10 @@ identity).
 
 1. **General settings**
    * Radio Name / Radio ID → set the radio's DMR ID and callsign.
-2. **Channels** (one per row from the plan in 5.1)
-   * Repeater Slot = 1 for DATA channels, 2 for VOICE
+2. **Channels** — **one channel per group** (voice + GPS + SMS all on the
+   same channel)
+   * Repeater Slot = 1 or 2 — either is fine; the app's *MMDVM Channel
+     Bindings* map your channel to a physical timeslot on each MMDVM.
    * Contact Name = the talkgroup contact you defined
    * TX Contact Name = same
    * Emergency System = "EmerSys-1" (defined below)
@@ -399,7 +524,7 @@ identity).
    * Enable **GNSS** on the radio-wide setting.
    * Add a **Location Info Config** entry:
      * Trigger = Distance/Time (e.g. every 30s, or every 100m).
-     * Destination = the DATA channel above (TS 1, matching TG).
+     * Destination = the group's unified channel (same TG as voice).
 5. **Text Messages**
    * Under **Menu**, enable **Text Message** so the operator can compose SMS.
    * Ensure **Text Message Alert** is on so incoming SMS from the dashboard
@@ -411,8 +536,7 @@ identity).
      * Emergency Call Confirmation = as your policy
    * Under **One-Touch Access**, bind the top orange button to this
      emergency system.
-   * Assign the emergency to the **VOICE** channel of the group the radio
-     belongs to.
+   * Assign the emergency to the **group's unified channel**.
 7. Write the codeplug to the radio.
 
 Motorola LRRP position reports and the emergency alarm CSBK the dashboard
@@ -428,22 +552,22 @@ configured as above.
    * Add a **Group Call** for each talkgroup (91, 92, 93…).
    * Add a **Private Call** contact for the server's `SERVER_DMR_ID` (e.g.
      `9990001`).
-3. **Channel → Digital Channel**
+3. **Channel → Digital Channel** — one channel per group
    * TX/RX Frequency matching MMDVM
    * Colour Code = whatever your MMDVM is set to (default 1)
-   * Repeater Slot = 1 (DATA) or 2 (VOICE)
+   * Repeater Slot = 1 or 2 (either works; the app remaps as needed)
    * TX Group List = the group contact for this TG
 4. **GPS / Radio Location Services**
    * Enable GPS.
    * Create a **GPS Trigger**: Time = 30 s, Distance = 100 m.
-   * **Report Channel = the DATA channel** you created (TS1).
+   * **Report Channel = the group's channel** (same one that carries voice).
    * **Reporting Method = "Data"** (not Compact BS Location).
 5. **Emergency**
    * `Common Menu → Emergency` → tick **Enable Emergency**.
    * Set **Emergency Type** = "Alarm + Call".
    * Bind the top orange button in **Menu → PF Program Key** to
      `Emergency On`.
-   * Emergency channel = the VOICE channel for the radio's group.
+   * Emergency channel = the group's channel.
 6. **Message Menu → Enable Short Data Message** so the radio can send/receive
    text SMS.
 7. Write the codeplug.
@@ -456,8 +580,8 @@ configured as above.
 2. **Talk Groups** (Digital Contact List)
    * Add each group as **Group Call**, e.g. `91 = Medical`.
    * Add one **Private Call** contact with call ID = `SERVER_DMR_ID`.
-3. **Channel Information**
-   * Create paired channels (DATA on TS1, VOICE on TS2) as per 5.1.
+3. **Channel Information** — one channel per group
+   * TS 1 or TS 2 — either works; the app maps channels onto physical slots.
    * Set **TX Contact** to the correct group.
    * Set **Colour Code** = MMDVM colour code.
 4. **APRS / GPS**
@@ -465,8 +589,8 @@ configured as above.
    * Under **APRS → Digital APRS**:
      * Manual TX interval = 30 s.
      * **APRS TG** = the group TG (e.g. 91).
-     * **Slot** = 1 (DATA slot).
-     * **Report Channel** = "Selected Channel" or specify DATA channel.
+     * **Slot** = same slot as the channel above.
+     * **Report Channel** = "Selected Channel" or specify the group's channel.
      * Anytone radios by default emit **APRS text over DMR** — the app's
        APRS parser will pick these up.
 5. **DMR Text Messages**
@@ -483,9 +607,8 @@ configured as above.
    * Radio ID = DMR ID, Radio Name = callsign.
 2. **Digital Contacts** — add group contacts (TG 91, 92, …) and one Private
    Call to `SERVER_DMR_ID`.
-3. **Channel Information**
-   * DATA channels on Repeater Slot 1, VOICE on Slot 2.
-   * TX Contact Name = matching group.
+3. **Channel Information** — one channel per group. TS 1 or TS 2 is fine.
+   TX Contact Name = matching group.
 4. **GPS**
    * Stock TYT firmware has limited GPS support. If you're on OpenGD77 /
      OpenRTX firmware, enable GPS in the firmware menu and set the
@@ -500,10 +623,78 @@ configured as above.
 
 1. **General Settings** → Radio ID + callsign.
 2. Group contacts (TG 91, 92, …) + one Private Call to `SERVER_DMR_ID`.
-3. Channels — DATA on TS1, VOICE on TS2.
+3. Channels — one per group. TS 1 or TS 2 is fine.
 4. GPS + Emergency handling depend on firmware; OpenGD77 firmware is
    recommended for full feature coverage. Emergency button binding is under
    the OpenGD77 firmware menu.
+
+### 5.7 Sepura DMR (SC20 / SC21 / SBP8000 series)
+
+Sepura's DMR line speaks standard ETSI DMR, so **voice, DMR SMS and the
+emergency-button CSBK all work end-to-end with this app** — same HomeBrew
+master, same talkgroup routing, same emergency banner + siren.
+
+**GPS is the one nuance:** Sepura radios by default report GPS using **LIP**
+(ETSI TS 102 361-4 Location Information Protocol), which the app's parsers
+don't decode natively yet. Two workarounds that DO work today:
+
+1. **Recommended — emit NMEA over DMR data.** Most Sepura DMR models can be
+   configured (via Sepura Radio Manager / Fleet Manager) to send GPS as raw
+   **NMEA `$GPRMC` sentences** over the DMR data channel instead of LIP. The
+   app's NMEA parser will pick them up automatically.
+2. **APRS-over-DMR.** If your Sepura fleet is running firmware / a codeplug
+   that supports APRS-style position beacons over the DMR data channel, the
+   app's APRS parser handles those too.
+3. Native **LIP** parsing is on the roadmap (P1) — capture a sample decrypted
+   packet with `tcpdump` on UDP/62031 and open an issue so we can add it.
+
+Programming steps (Sepura Radio Manager / Fleet Manager):
+
+1. **Radio Identity**
+   * DMR ID = the radio's 7-digit ID.
+   * Radio Alias = callsign.
+2. **Contacts / Talkgroups**
+   * Add a **Group Call** contact per group (91, 92, 93…).
+   * Add a **Private Call** contact for the server's `SERVER_DMR_ID` (e.g.
+     `9990001`) so the dashboard can privately message this radio.
+3. **Channels** — one channel per group, either TS is fine (the app's
+   *MMDVM Channel Bindings* handle the physical slot mapping).
+   * TX Contact = the group.
+   * Colour Code = matches your MMDVM.
+4. **GPS**
+   * Enable the internal GPS receiver.
+   * Under **Location Reporting** (naming varies by model / SRM version), set
+     **Reporting Method = NMEA (RMC)**, **Interval = 30 s**, **Report Channel
+     = the group's channel**.
+   * If your model only exposes **LIP**, either upgrade to a firmware that
+     supports NMEA output, or open an issue so LIP parsing can be added.
+5. **Text Messaging (SDS)**
+   * Enable **Short Data Service / Text Messages** in the codeplug so incoming
+     SMS from the dashboard pop on the radio.
+6. **Emergency**
+   * Bind the top orange button (SC20/SC21) or the labelled emergency key
+     (SBP8000) to **Emergency Alarm + Call**.
+   * Emergency channel = the group's channel.
+7. Write the codeplug via Sepura Radio Manager.
+
+> **Note on Sepura AVL:** Sepura's *AVL Server* is a proprietary product for
+> Sepura-only fleets that decrypts LIP and plots to their own dashboard. This
+> app is an off-network, multi-brand alternative that works with any HomeBrew-
+> compatible MMDVM. AVL is not required.
+
+### 5.8 Mapping channels to MMDVM timeslots (in the app)
+
+After programming radios and pointing MMDVMs at the server:
+
+1. Sign in as **admin** on the dashboard.
+2. In the right column, open **Ops → MMDVM Channel Bindings** → **Configure**.
+3. For every MMDVM you plan to run, pick which channel sits on **TS1** and
+   which sits on **TS2**. Voice frames arriving on the "wrong" slot are
+   re-emitted on the correct slot automatically when they cross between
+   MMDVMs, so radios can be programmed however is convenient.
+4. Any channel you haven't created yet can be added under **Ops → Channels
+   (Timeslots)** — click the pen icon on the built-in `slot-1` / `slot-2`
+   channels to rename them, or POST to `/api/channels` to add a new one.
 
 ## 6. App usage
 

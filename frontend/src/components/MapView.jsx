@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef } from "react";
 import {
   MapContainer,
-  TileLayer,
   Marker,
   Polyline,
   Circle,
@@ -12,11 +11,7 @@ import ReactDOMServer from "react-dom/server";
 import { useQuery } from "@tanstack/react-query";
 import { fetchPositions } from "@/lib/api";
 import { iconFor } from "@/lib/icons";
-
-const DARK_TILES =
-  "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png";
-const ATTRIBUTION =
-  '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &middot; &copy; <a href="https://carto.com/attributions">CARTO</a>';
+import { BaseLayers } from "@/components/BaseLayers";
 
 function buildIcon(radio, selected, groupColor) {
   const label = radio.callsign || `ID ${radio.dmr_id}`;
@@ -161,7 +156,7 @@ export function MapView({
         attributionControl
       >
         <MapReadyEmitter onMapReady={onMapReady} />
-        <TileLayer url={DARK_TILES} attribution={ATTRIBUTION} />
+        <BaseLayers defaultLayer="Dark" />
         <FitToRadios radios={withPos} />
         <PanTo target={panTarget} />
 

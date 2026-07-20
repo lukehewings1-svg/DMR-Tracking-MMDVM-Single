@@ -88,9 +88,9 @@ export default function Dashboard() {
   const [mapInstance, setMapInstance] = useState(null);
 
   // Desktop panel collapse state (persisted)
-  const [leftOpen, setLeftOpen] = usePersistedState("dash:leftOpen", true);
-  const [rightOpen, setRightOpen] = usePersistedState("dash:rightOpen", true);
-  const [bottomOpen, setBottomOpen] = usePersistedState("dash:bottomOpen", true);
+  const [leftOpen, setLeftOpen] = usePersistedState("panel:dash:leftOpen", true);
+  const [rightOpen, setRightOpen] = usePersistedState("panel:dash:rightOpen", true);
+  const [bottomOpen, setBottomOpen] = usePersistedState("panel:dash:bottomOpen", true);
 
   // Mobile menu
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -361,7 +361,7 @@ export default function Dashboard() {
         <MobileTab
           testid="mtab-roster"
           icon={<RadioIcon className="h-4 w-4" />}
-          label="Roster"
+          label="Radios"
           badge={filteredRadios.length}
           active={mobileView === "roster"}
           onClick={() => setMobileView("roster")}
@@ -545,7 +545,9 @@ export default function Dashboard() {
       <Link
         data-testid="nav-setup-guide"
         to="/setup"
-        className="hidden items-center gap-1 border border-[#2a2a2a] px-2 py-1 text-neutral-300 hover:border-[#00f0ff] hover:text-[#00f0ff] md:flex"
+        className={`items-center gap-1 border border-[#2a2a2a] px-2 py-1 text-neutral-300 hover:border-[#00f0ff] hover:text-[#00f0ff] ${
+          narrow ? "hidden" : "flex"
+        }`}
       >
         <BookOpen className="h-3 w-3" /> Setup Guide
       </Link>
@@ -554,14 +556,18 @@ export default function Dashboard() {
           <Link
             data-testid="nav-admin"
             to="/admin/users"
-            className="hidden items-center gap-1 border border-[#2a2a2a] px-2 py-1 text-neutral-300 hover:border-[#00f0ff] hover:text-[#00f0ff] md:flex"
+            className={`items-center gap-1 border border-[#2a2a2a] px-2 py-1 text-neutral-300 hover:border-[#00f0ff] hover:text-[#00f0ff] ${
+              narrow ? "hidden" : "flex"
+            }`}
           >
             <ShieldCheck className="h-3 w-3" /> Users
           </Link>
           <button
             data-testid="nav-clear"
             onClick={handleClear}
-            className="hidden items-center gap-1 border border-[#2a2a2a] px-2 py-1 text-neutral-300 hover:border-[#ff3b30] hover:text-[#ff3b30] md:flex"
+            className={`items-center gap-1 border border-[#2a2a2a] px-2 py-1 text-neutral-300 hover:border-[#ff3b30] hover:text-[#ff3b30] ${
+              narrow ? "hidden" : "flex"
+            }`}
           >
             <Trash2 className="h-3 w-3" /> Clear All
           </button>
@@ -570,7 +576,9 @@ export default function Dashboard() {
       <button
         data-testid="nav-signout"
         onClick={signOut}
-        className="hidden items-center gap-1 border border-[#2a2a2a] px-2 py-1 text-neutral-300 hover:border-[#ff3b30] hover:text-[#ff3b30] md:flex"
+        className={`items-center gap-1 border border-[#2a2a2a] px-2 py-1 text-neutral-300 hover:border-[#ff3b30] hover:text-[#ff3b30] ${
+          narrow ? "hidden" : "flex"
+        }`}
       >
         <LogOut className="h-3 w-3" /> Sign out
       </button>
@@ -578,7 +586,9 @@ export default function Dashboard() {
       <button
         data-testid="mobile-menu"
         onClick={() => setMobileMenuOpen(true)}
-        className="flex items-center gap-1 border border-[#2a2a2a] px-2 py-1 text-neutral-300 hover:border-[#00f0ff] hover:text-[#00f0ff] md:hidden"
+        className={`items-center gap-1 border border-[#2a2a2a] px-2 py-1 text-neutral-300 hover:border-[#00f0ff] hover:text-[#00f0ff] ${
+          narrow ? "flex" : "hidden"
+        }`}
         title="More"
       >
         <MoreHorizontal className="h-4 w-4" />
@@ -628,9 +638,9 @@ export default function Dashboard() {
       {narrow ? NarrowLayout : DesktopLayout}
 
       {/* Mobile "More" menu drawer */}
-      {mobileMenuOpen && (
+      {mobileMenuOpen && narrow && (
         <div
-          className="fixed inset-0 z-[900] bg-black/70 md:hidden"
+          className="fixed inset-0 z-[900] bg-black/70"
           onClick={() => setMobileMenuOpen(false)}
           data-testid="mobile-menu-drawer"
         >
@@ -688,6 +698,7 @@ export default function Dashboard() {
         dmrId={detailId}
         radio={detailRadio}
         groups={groups}
+        messages={messages}
         onClose={() => setDetailId(null)}
         onSaved={refreshAll}
         onDeleted={() => {

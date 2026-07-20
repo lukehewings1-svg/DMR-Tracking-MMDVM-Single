@@ -2,7 +2,6 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
 import {
   MapContainer,
-  TileLayer,
   Marker,
   Circle,
   useMap,
@@ -15,12 +14,8 @@ import {
 } from "@/lib/api";
 import { iconFor } from "@/lib/icons";
 import { OverlayLayer } from "@/components/OverlayLayer";
+import { BaseLayers } from "@/components/BaseLayers";
 import { AlertOctagon, Radio as RadioIcon, ShieldAlert, Layers } from "lucide-react";
-
-const DARK_TILES =
-  "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png";
-const ATTRIBUTION =
-  '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &middot; &copy; <a href="https://carto.com/attributions">CARTO</a>';
 
 function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, (c) => ({
@@ -274,7 +269,7 @@ export default function SituationalView() {
           preferCanvas
           zoomControl
         >
-          <TileLayer url={DARK_TILES} attribution={ATTRIBUTION} />
+          <BaseLayers defaultLayer="Dark" />
           <FitToRadios radios={withPos} />
           {overlaysVisible && <OverlayLayer overlays={overlays} />}
           {withPos.map((r) => (

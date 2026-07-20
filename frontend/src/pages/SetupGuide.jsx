@@ -12,21 +12,10 @@ export default function SetupGuide() {
   useEffect(() => {
     (async () => {
       try {
-        const [p1, p2] = await Promise.all([
-          fetch("/SETUP.md").then((r) => (r.ok ? r.text() : Promise.reject(r.status))),
-          fetch("/SETUP_PART2.md").then((r) => (r.ok ? r.text() : Promise.reject(r.status))),
-        ]);
-        // Strip the "Continue in SETUP_PART2..." trailer and part 2's "Part 1 is
-        // here" preamble so they read as one long doc.
-        const trimmedP1 = p1.replace(
-          /---\s*\n\s*Continue in \*\*\[SETUP_PART2\.md\][\s\S]*$/m,
-          ""
+        const md = await fetch("/SETUP.md").then((r) =>
+          r.ok ? r.text() : Promise.reject(r.status)
         );
-        const p2Body = p2.replace(
-          /^# DMR Tracker[\s\S]*?---\s*\n/,
-          ""
-        );
-        setMarkdown(`${trimmedP1}\n\n${p2Body}`);
+        setMarkdown(md);
       } catch (e) {
         setErr(String(e));
       } finally {
