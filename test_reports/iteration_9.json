@@ -1,0 +1,27 @@
+{
+  "summary": "Frontend-only responsive layout refactor testing (iteration 9). Executed against admin login on desktop (1440x900), forced mobile/tablet/tv via ?forceBp= override, and real 400x800 mobile viewport. All 17 listed acceptance items verified. Backend smoke: /api/status and /api/radios both require auth (401 unauth as expected).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Mobile TopBar (400x800)", "issues": ["Header title 'DMR TRACKER / HOMEBREW MASTER · MULTI-BRAND GPS' wraps across ~4 lines consuming ~130px of vertical space — could be more compact on mobile."]}
+    ]
+  },
+  "test_report_links": [],
+  "action_items": [
+    "MINOR/OPTIONAL: The PR description states localStorage keys are `panel:dash:leftOpen`, `panel:dash:rightOpen`, `panel:dash:bottomOpen`. Actual keys used in code are `dash:leftOpen`, `dash:rightOpen`, `dash:bottomOpen` (Dashboard.jsx L91-93 calls `usePersistedState('dash:leftOpen', ...)` and usePersistedState stores the key verbatim, unlike CollapsiblePanel which prefixes with 'panel:'). Persistence works correctly; only the naming diverges from the spec. Consider aligning either the spec or the code."
+  ],
+  "critical_code_review_comments": [
+    "Dashboard.jsx is ~745 lines — still under 800 but growing; consider splitting DesktopLayout/NarrowLayout/OpsPanels into sibling files.",
+    "usePersistedState currently defined inside CollapsiblePanel.jsx but consumed from Dashboard.jsx — fine, but a small /hooks/usePersistedState.js would be a cleaner separation.",
+    "The mobile-menu button relies on Tailwind `md:hidden` (CSS media query at 768px) rather than the JS `bp` value; using `?forceBp=mobile` on a >=768 viewport will show the mobile tabbar (JS-driven) but hide the mobile-menu button (CSS-driven). Not a bug on real devices but the forceBp escape hatch is inconsistent — consider gating with `narrow` from the hook."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "100% (smoke)", "frontend": "100%"},
+  "test_credentials": "admin@dmrtracker.app / admin123",
+  "seed_data_creation": "None; used existing 14 seeded radios.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Verified: desktop data-breakpoint='desktop' with left+right columns, roster-list scrollable (sh=994, ch=683, scrollTop=250 accepted), collapse/expand left/right/bottom buttons all toggle correctly and persist to localStorage keys `dash:leftOpen`, `dash:rightOpen`, `dash:bottomOpen`. panel-channels + panel-channels-header collapse toggles and persists to `panel:channels`. tab-messages renders msg-conversation. document.documentElement/body have no vertical overflow. Mobile (?forceBp=mobile OR viewport 400x800): data-breakpoint='mobile', mobile-tabbar with all 5 tabs (mtab-map/roster/ops/msg/log) present. mtab-roster shows roster-list scrollable (sh=994 ch=687). mtab-msg shows msg-conversation. mtab-ops shows panel-channels + overlay-manager. mobile-menu opens mobile-menu-drawer (only visible at CSS <768). Tablet: data-breakpoint='tablet' + mobile-tabbar. TV: data-breakpoint='tv' with left-column + right-column. Only findings are minor: (1) localStorage naming mismatch between PR description and code, (2) mobile-menu CSS-hidden on wide-viewport forceBp=mobile."
+}

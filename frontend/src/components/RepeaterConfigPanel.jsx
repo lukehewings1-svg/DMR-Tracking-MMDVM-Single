@@ -11,16 +11,19 @@ import { toast } from "sonner";
 import { Server, Save, Trash2, Cable } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 
-export function RepeaterConfigPanel({ channels }) {
+export function RepeaterConfigPanel({ channels, embedded }) {
   const { user } = useAuth();
   const [open, setOpen] = useState(false);
   if (user?.role !== "admin") return null;
   return (
-    <div className="border-b border-[#2a2a2a] p-3" data-testid="repeater-config-panel">
+    <div className={embedded ? "px-3 pb-2" : "border-b border-[#2a2a2a] p-3"} data-testid="repeater-config-panel">
       <div className="mb-2 flex items-center justify-between">
-        <div className="text-[10px] uppercase tracking-[0.3em] text-neutral-500">
-          MMDVM Channel Bindings
-        </div>
+        {!embedded && (
+          <div className="text-[10px] uppercase tracking-[0.3em] text-neutral-500">
+            MMDVM Channel Bindings
+          </div>
+        )}
+        {embedded && <div />}
         <button
           data-testid="repeater-config-open"
           onClick={() => setOpen(true)}

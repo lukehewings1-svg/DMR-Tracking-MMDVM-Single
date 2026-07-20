@@ -12,27 +12,32 @@ import { Plus, Trash2, Save, X, Radio, AlertOctagon } from "lucide-react";
 import { ICON_SET, COLOR_SET, iconFor } from "@/lib/icons";
 import { useAuth } from "@/context/AuthContext";
 
-export function GroupsPanel({ groups, filter, onFilter, onChanged }) {
+export function GroupsPanel({ groups, filter, onFilter, onChanged, embedded }) {
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";
   const [open, setOpen] = useState(false);
 
   return (
-    <div className="border-b border-[#2a2a2a] p-3" data-testid="groups-panel">
-      <div className="mb-2 flex items-center justify-between">
-        <div className="text-[10px] uppercase tracking-[0.3em] text-neutral-500">
-          Groups (Talk Groups)
+    <div className={embedded ? "px-3 pb-2" : "border-b border-[#2a2a2a] p-3"} data-testid="groups-panel">
+      {(!embedded || isAdmin) && (
+        <div className="mb-2 flex items-center justify-between">
+          {!embedded && (
+            <div className="text-[10px] uppercase tracking-[0.3em] text-neutral-500">
+              Groups (Talk Groups)
+            </div>
+          )}
+          {embedded && <div />}
+          {isAdmin && (
+            <button
+              data-testid="groups-manage"
+              onClick={() => setOpen(true)}
+              className="flex items-center gap-1 border border-[#2a2a2a] px-2 py-0.5 mono text-[10px] uppercase text-neutral-400 hover:border-[#00f0ff] hover:text-[#00f0ff]"
+            >
+              <Plus className="h-3 w-3" /> Manage
+            </button>
+          )}
         </div>
-        {isAdmin && (
-          <button
-            data-testid="groups-manage"
-            onClick={() => setOpen(true)}
-            className="flex items-center gap-1 border border-[#2a2a2a] px-2 py-0.5 mono text-[10px] uppercase text-neutral-400 hover:border-[#00f0ff] hover:text-[#00f0ff]"
-          >
-            <Plus className="h-3 w-3" /> Manage
-          </button>
-        )}
-      </div>
+      )}
 
       <div className="flex flex-wrap gap-1" data-testid="group-filter-chips">
         <FilterChip

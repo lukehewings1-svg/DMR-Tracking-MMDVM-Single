@@ -15,18 +15,20 @@ import { useAuth } from "@/context/AuthContext";
  * Channel filter chips + admin rename modal.
  * `filter` is null | 1 | 2. Clicking a chip toggles it as the current filter.
  */
-export function ChannelFilter({ channels, filter, onFilter, onChanged }) {
+export function ChannelFilter({ channels, filter, onFilter, onChanged, embedded }) {
   const { user } = useAuth();
   const [editing, setEditing] = useState(null); // channel object being renamed
   const isAdmin = user?.role === "admin";
 
   return (
-    <div className="border-b border-[#2a2a2a] p-3" data-testid="channel-filter">
-      <div className="mb-2 flex items-center justify-between">
-        <div className="text-[10px] uppercase tracking-[0.3em] text-neutral-500">
-          Channels (Timeslots)
+    <div className={embedded ? "px-3 pb-2" : "border-b border-[#2a2a2a] p-3"} data-testid="channel-filter">
+      {!embedded && (
+        <div className="mb-2 flex items-center justify-between">
+          <div className="text-[10px] uppercase tracking-[0.3em] text-neutral-500">
+            Channels (Timeslots)
+          </div>
         </div>
-      </div>
+      )}
       <div className="flex flex-wrap gap-1" data-testid="channel-chips">
         <Chip
           testid="channel-chip-all"

@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 
-export function ParserStatus({ packets, parsers }) {
+export function ParserStatus({ packets, parsers, embedded }) {
   const activity = useMemo(() => {
     const now = Date.now();
     const counts = {};
@@ -18,10 +18,12 @@ export function ParserStatus({ packets, parsers }) {
   }, [packets, parsers]);
 
   return (
-    <div data-testid="parser-status" className="border-b border-[#2a2a2a] p-3">
-      <div className="mb-2 text-[10px] uppercase tracking-[0.3em] text-neutral-500">
-        Parsers
-      </div>
+    <div data-testid="parser-status" className={embedded ? "px-3 pb-2" : "border-b border-[#2a2a2a] p-3"}>
+      {!embedded && (
+        <div className="mb-2 text-[10px] uppercase tracking-[0.3em] text-neutral-500">
+          Parsers
+        </div>
+      )}
       <div className="grid grid-cols-2 gap-2 mono">
         {(parsers || []).map((name) => {
           const c = activity.counts[name] || 0;

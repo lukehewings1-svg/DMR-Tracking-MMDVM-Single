@@ -17,7 +17,7 @@ function shortTime(iso) {
   }
 }
 
-export function PacketLog({ packets }) {
+export function PacketLog({ packets, embedded }) {
   const boxRef = useRef(null);
   useEffect(() => {
     if (boxRef.current) boxRef.current.scrollTop = 0;
@@ -26,16 +26,18 @@ export function PacketLog({ packets }) {
   return (
     <div
       data-testid="packet-log"
-      className="flex h-full flex-col border-t border-[#2a2a2a] bg-black"
+      className={`flex h-full min-h-0 flex-col ${embedded ? "bg-black" : "border-t border-[#2a2a2a] bg-black"}`}
     >
-      <div className="flex items-center justify-between border-b border-[#2a2a2a] px-3 py-1.5">
-        <div className="text-[10px] uppercase tracking-[0.3em] text-neutral-500">
-          Raw Packet Log
+      {!embedded && (
+        <div className="flex items-center justify-between border-b border-[#2a2a2a] px-3 py-1.5">
+          <div className="text-[10px] uppercase tracking-[0.3em] text-neutral-500">
+            Raw Packet Log
+          </div>
+          <div className="mono text-[10px] text-neutral-500">
+            {packets.length} pkt
+          </div>
         </div>
-        <div className="mono text-[10px] text-neutral-500">
-          {packets.length} pkt
-        </div>
-      </div>
+      )}
       <div
         ref={boxRef}
         className="flex-1 overflow-y-auto p-2 mono text-[11px] leading-relaxed"

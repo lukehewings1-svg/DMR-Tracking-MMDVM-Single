@@ -11,7 +11,7 @@ import { Trash2, Plus, Bell, BellRing } from "lucide-react";
 import { formatDistanceToNowStrict } from "date-fns";
 import { useAuth } from "@/context/AuthContext";
 
-export function GeofencePanel({ onChange }) {
+export function GeofencePanel({ onChange, embedded }) {
   const { user } = useAuth();
   const [fences, setFences] = useState([]);
   const [name, setName] = useState("");
@@ -65,21 +65,26 @@ export function GeofencePanel({ onChange }) {
   };
 
   return (
-    <div className="border-b border-[#2a2a2a] p-3" data-testid="geofence-panel">
-      <div className="mb-2 flex items-center justify-between">
-        <div className="text-[10px] uppercase tracking-[0.3em] text-neutral-500">
-          Geofences
+    <div className={embedded ? "px-3 pb-2" : "border-b border-[#2a2a2a] p-3"} data-testid="geofence-panel">
+      {(!embedded || isAdmin) && (
+        <div className="mb-2 flex items-center justify-between">
+          {!embedded && (
+            <div className="text-[10px] uppercase tracking-[0.3em] text-neutral-500">
+              Geofences
+            </div>
+          )}
+          {embedded && <div />}
+          {isAdmin && (
+            <button
+              data-testid="geofence-toggle-form"
+              onClick={() => setShowForm((s) => !s)}
+              className="flex items-center gap-1 border border-[#2a2a2a] px-2 py-0.5 mono text-[10px] uppercase text-neutral-400 hover:border-[#00f0ff] hover:text-[#00f0ff]"
+            >
+              <Plus className="h-3 w-3" /> New
+            </button>
+          )}
         </div>
-        {isAdmin && (
-          <button
-            data-testid="geofence-toggle-form"
-            onClick={() => setShowForm((s) => !s)}
-            className="flex items-center gap-1 border border-[#2a2a2a] px-2 py-0.5 mono text-[10px] uppercase text-neutral-400 hover:border-[#00f0ff] hover:text-[#00f0ff]"
-          >
-            <Plus className="h-3 w-3" /> New
-          </button>
-        )}
-      </div>
+      )}
 
       {showForm && isAdmin && (
         <form
@@ -184,30 +189,36 @@ export function GeofencePanel({ onChange }) {
   );
 }
 
-export function AlertsPanel({ alerts, onClear }) {
+export function AlertsPanel({ alerts, onClear, embedded }) {
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";
   return (
-    <div className="border-b border-[#2a2a2a] p-3" data-testid="alerts-panel">
-      <div className="mb-2 flex items-center justify-between">
-        <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-[0.3em] text-neutral-500">
-          {alerts.length > 0 ? (
-            <BellRing className="h-3 w-3 text-[#ffb800] animate-pulse" />
+    <div className={embedded ? "px-3 pb-2" : "border-b border-[#2a2a2a] p-3"} data-testid="alerts-panel">
+      {(!embedded || (isAdmin && alerts.length > 0)) && (
+        <div className="mb-2 flex items-center justify-between">
+          {!embedded ? (
+            <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-[0.3em] text-neutral-500">
+              {alerts.length > 0 ? (
+                <BellRing className="h-3 w-3 text-[#ffb800] animate-pulse" />
+              ) : (
+                <Bell className="h-3 w-3" />
+              )}
+              Alerts
+            </div>
           ) : (
-            <Bell className="h-3 w-3" />
+            <div />
           )}
-          Alerts
+          {isAdmin && alerts.length > 0 && (
+            <button
+              data-testid="alerts-clear"
+              onClick={onClear}
+              className="mono text-[10px] uppercase text-neutral-500 hover:text-[#ff3b30]"
+            >
+              clear
+            </button>
+          )}
         </div>
-        {isAdmin && alerts.length > 0 && (
-          <button
-            data-testid="alerts-clear"
-            onClick={onClear}
-            className="mono text-[10px] uppercase text-neutral-500 hover:text-[#ff3b30]"
-          >
-            clear
-          </button>
-        )}
-      </div>
+      )}
       <div className="max-h-40 overflow-y-auto space-y-1">
         {alerts.length === 0 && (
           <div className="mono text-[10px] text-neutral-600">// no alerts</div>

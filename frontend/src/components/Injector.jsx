@@ -54,7 +54,7 @@ function jitter(v, r = 0.02) {
   return v + (Math.random() - 0.5) * r;
 }
 
-export function Injector({ onSent }) {
+export function Injector({ onSent, embedded }) {
   const [running, setRunning] = useState(false);
   const [rate, setRate] = useState(2000);
   const [channel, setChannel] = useState(1);
@@ -122,15 +122,17 @@ export function Injector({ onSent }) {
   };
 
   return (
-    <div data-testid="injector" className="border-b border-[#2a2a2a] p-3">
-      <div className="mb-2 flex items-center justify-between">
-        <div className="text-[10px] uppercase tracking-[0.3em] text-neutral-500">
-          Simulated GPS Injector
+    <div data-testid="injector" className={embedded ? "px-3 pb-2" : "border-b border-[#2a2a2a] p-3"}>
+      {!embedded && (
+        <div className="mb-2 flex items-center justify-between">
+          <div className="text-[10px] uppercase tracking-[0.3em] text-neutral-500">
+            Simulated GPS Injector
+          </div>
+          <div className="mono text-[10px] text-neutral-500">
+            {stateRef.current.length} mock radios
+          </div>
         </div>
-        <div className="mono text-[10px] text-neutral-500">
-          {stateRef.current.length} mock radios
-        </div>
-      </div>
+      )}
 
       <div className="flex flex-wrap items-center gap-2">
         <button

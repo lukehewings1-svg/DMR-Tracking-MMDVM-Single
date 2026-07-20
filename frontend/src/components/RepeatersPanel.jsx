@@ -1,20 +1,22 @@
 import { Server, Wifi, WifiOff } from "lucide-react";
 import { formatDistanceToNowStrict } from "date-fns";
 
-export function RepeatersPanel({ repeaters, voiceActivity }) {
+export function RepeatersPanel({ repeaters, voiceActivity, embedded }) {
   const activeByRpt = new Map();
   (voiceActivity || []).forEach((v) => {
     if (v.repeater_id) activeByRpt.set(v.repeater_id, v);
   });
 
   return (
-    <div data-testid="repeaters-panel" className="border-b border-[#2a2a2a] p-3">
-      <div className="mb-2 flex items-center justify-between">
-        <div className="text-[10px] uppercase tracking-[0.3em] text-neutral-500">
-          Connected MMDVMs
+    <div data-testid="repeaters-panel" className={embedded ? "px-3 pb-2" : "border-b border-[#2a2a2a] p-3"}>
+      {!embedded && (
+        <div className="mb-2 flex items-center justify-between">
+          <div className="text-[10px] uppercase tracking-[0.3em] text-neutral-500">
+            Connected MMDVMs
+          </div>
+          <div className="mono text-[10px] text-neutral-500">{repeaters.length}</div>
         </div>
-        <div className="mono text-[10px] text-neutral-500">{repeaters.length}</div>
-      </div>
+      )}
 
       {repeaters.length === 0 && (
         <div className="mono text-[10px] text-neutral-600">
