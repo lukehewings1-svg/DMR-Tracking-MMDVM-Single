@@ -150,7 +150,9 @@ export function RadioDetailModal({
       await sendMessage({ text: draft, target_dmr_id: dmrId });
       toast.success("Message queued");
       setDraft("");
-      onSaved?.();
+      // NB: don't call onSaved() here — it triggers a parent-level refresh
+      // that unmounts and remounts the modal, closing it before the operator
+      // sees the sent message land in history via the live WebSocket push.
     } catch (e) {
       toast.error(e?.response?.data?.detail || "Send failed");
     }

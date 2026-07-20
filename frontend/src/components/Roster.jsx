@@ -31,8 +31,9 @@ function RssiBar({ rssi }) {
   );
 }
 
-export function Roster({ radios, selectedId, onSelect, consumeFlash, onOpenDetail, groups }) {
+export function Roster({ radios, selectedId, onSelect, consumeFlash, onOpenDetail, groups, txActiveIds }) {
   const groupById = new Map((groups || []).map((g) => [g.id, g]));
+  const txSet = txActiveIds || new Set();
   return (
     <aside
       data-testid="roster"
@@ -63,21 +64,35 @@ export function Roster({ radios, selectedId, onSelect, consumeFlash, onOpenDetai
           const color = grp?.color || r.color || "#39ff14";
           const IconComp = iconFor(r.icon || grp?.icon);
           const distress = r.in_emergency;
+          const tx = txSet.has(r.dmr_id);
           return (
             <div
               key={r.dmr_id}
               data-testid={`roster-row-${r.dmr_id}`}
+              data-tx={tx ? "1" : "0"}
               onClick={() => onSelect(r.dmr_id)}
               onDoubleClick={() => onOpenDetail?.(r.dmr_id)}
               className={`cursor-pointer border-b border-[#1a1a1a] px-3 py-2 transition-colors ${
                 distress
                   ? "border-l-2 border-l-[#ff3b30] bg-[#1a0505]"
+                  : tx
+                  ? "border-l-2 border-l-[#39ff14] bg-[#081a08]"
                   : selected
                   ? "bg-[#001a1f] border-l-2 border-l-[#00f0ff]"
                   : "hover:bg-[#111]"
               } ${flash ? "row-flash" : ""}`}
-              style={distress ? { animation: "emergency-row 1.2s ease-in-out infinite" } : undefined}
-              title="Click to focus map · Double-click for details"
+              style={
+                distress
+                  ? { animation: "emergency-row 1.2s ease-in-out infinite" }
+                  : tx
+                  ? { boxShadow: "inset 0 0 20px rgba(57,255,20,0.15)" }
+                  : undefined
+              }
+              title={
+                tx
+                  ? "TX ACTIVE"
+                  : "Click to focus map · Double-click for details"
+              }
             >
               <div className="flex items-center gap-2">
                 <div
@@ -92,6 +107,13 @@ export function Roster({ radios, selectedId, onSelect, consumeFlash, onOpenDetai
                     >
                       <AlertOctagon className="h-2.5 w-2.5" />
                     </span>
+                  )}
+                  {!distress && tx && (
+                    <span
+                      className="absolute -right-1.5 -top-1.5 flex h-3 w-3 items-center justify-center border border-[#39ff14] bg-[#39ff14]"
+                      title="Transmitting now"
+                      style={{ animation: "emergency-row 0.6s ease-in-out infinite" }}
+                    />
                   )}
                 </div>
                 <div className="min-w-0 flex-1">

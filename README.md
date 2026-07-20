@@ -711,28 +711,43 @@ After programming radios and pointing MMDVMs at the server:
  ┌───────────────────────────── Top bar ──────────────────────────────┐
  │ LISTENER · REPEATERS · DMR FRAMES · GPS FIXES · RADIOS · LIVE       │
  ├─────────────────────────── Session strip ──────────────────────────┤
- │ operator@... [admin] [Setup] [Users] [Clear All] [Sign out]         │
+ │ operator@... [admin] [Overlays: On] [Setup] [Users] [Clear All]     │
  ├──────────────────────── Emergency banner ──────────────────────────┤
  │  ⚠ EMERGENCY · 2 ACTIVE   [K7SAR-1] [DL7ABC]  (only if active)     │
  ├──────────┬───────────────────────────────────┬─────────────────────┤
- │  Roster  │              Live map              │    Ops / Msg tabs   │
- │          │        (OpenStreetMap dark)        │                     │
- │          │                                    │  Groups filter      │
+ │  Radios  │              Live map              │    Ops / Msg / Log   │
+ │  (roster)│      Dark / Streets / Satellite    │                     │
+ │          │      / Terrain — pick top-right    │  Event Overlays     │
+ │          │      Rotate: compass control       │  Channels           │
+ │          │      Two-finger twist on touch     │  MMDVM Bindings     │
+ │          │      Shift+drag on desktop         │  Groups             │
  │          │                                    │  Connected MMDVMs   │
- │          │                                    │  Parsers            │
- │          │                                    │  Alerts             │
+ │          │                                    │  Parsers · Alerts   │
  │          │                                    │  Geofences          │
  │          ├───────────────────────────────────┤  Injector (test)    │
  │          │           Packet log               │                     │
  └──────────┴───────────────────────────────────┴─────────────────────┘
 ```
 
-The right column has two tabs:
+Every side panel can be **minimised** (chevron buttons on each header and
+on the left / right / bottom edges of the map). On phones / tablets the
+layout collapses to a full-screen map with a bottom tab bar: **Map /
+Radios / Ops / Msg / Log**.
 
-* **Ops** — groups, repeaters, parsers, alerts, geofences, simulated GPS
-  injector.
-* **Messages** — DMR text messaging. Pick a Group or a specific Radio, type,
+**Rotating the map** — the compass control on the top-left of the map lets
+you spin the basemap to any bearing so the event site is oriented the way
+you want it (useful when the course, campus or venue isn't aligned with
+true north). Click ± to nudge 15°, click the compass to snap back to
+north, hold **Shift** and drag on desktop, or **twist two fingers** on a
+touch device.
+
+The right column has three tabs:
+
+* **Ops** — event overlays, channels, groups, repeaters, parsers, alerts,
+  geofences, simulated GPS injector.
+* **Msg** — DMR text messaging. Pick a Group or a specific Radio, type,
   hit **Send** (or Ctrl+Enter).
+* **Log** — shift log (all events, filterable, CSV-exportable).
 
 ### 6.3 Groups (Talk Groups)
 

@@ -7,6 +7,7 @@ import {
   useMap,
 } from "react-leaflet";
 import L from "leaflet";
+import "leaflet-rotate";
 import ReactDOMServer from "react-dom/server";
 import {
   fetchSituationalSnapshot,
@@ -15,6 +16,7 @@ import {
 import { iconFor } from "@/lib/icons";
 import { OverlayLayer } from "@/components/OverlayLayer";
 import { BaseLayers } from "@/components/BaseLayers";
+import { RotateControl } from "@/components/RotateControl";
 import { AlertOctagon, Radio as RadioIcon, ShieldAlert, Layers } from "lucide-react";
 
 function escapeHtml(s) {
@@ -268,8 +270,14 @@ export default function SituationalView() {
           className="h-full w-full"
           preferCanvas
           zoomControl
+          rotate
+          rotateControl={false}
+          bearing={0}
+          touchRotate
+          shiftKeyRotate
         >
           <BaseLayers defaultLayer="Dark" />
+          <RotateControl />
           <FitToRadios radios={withPos} />
           {overlaysVisible && <OverlayLayer overlays={overlays} />}
           {withPos.map((r) => (

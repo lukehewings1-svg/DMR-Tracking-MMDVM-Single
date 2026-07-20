@@ -116,6 +116,22 @@ export default function Dashboard() {
   const editingOverlay = overlays.find((o) => o.id === editingOverlayId) || null;
   const isAdmin = user?.role === "admin";
 
+  // Set of DMR IDs currently transmitting voice — powers the map + roster
+  // "live TX" pulse.
+  const txActiveIds = useMemo(
+    () => new Set((voiceActivity || []).map((v) => v.src_id).filter(Boolean)),
+    [voiceActivity]
+  );
+
+  // Command-centre mode: pin the messages panel as a persistent side column
+  // in addition to (not instead of) the Ops/Log tabs. Auto-on for TVs (>=1920)
+  // but user can toggle it any time. Persisted.
+  const [pinMessages, setPinMessages] = usePersistedState(
+    "panel:dash:pinMessages",
+    false,
+  );
+  const showMessagesSideColumn = !narrow && pinMessages;
+
   const filteredRadios = useMemo(() => {
     let result = radios;
     if (groupFilter) result = result.filter((r) => r.group_id === groupFilter);
@@ -285,6 +301,7 @@ export default function Dashboard() {
     <Roster
       radios={filteredRadios}
       selectedId={selectedId}
+      txActiveIds={txActiveIds}
       onSelect={(id) => {
         focus(id);
         if (narrow) setMobileView("map");
@@ -308,6 +325,7 @@ export default function Dashboard() {
               radios={filteredRadios}
               groups={groups}
               selectedId={selectedId}
+              txActiveIds={txActiveIds}
               onSelect={(id) => {
                 focus(id);
                 openDetail(id);
@@ -439,6 +457,7 @@ export default function Dashboard() {
             radios={filteredRadios}
             groups={groups}
             selectedId={selectedId}
+            txActiveIds={txActiveIds}
             onSelect={(id) => {
               focus(id);
               openDetail(id);
@@ -485,6 +504,36 @@ export default function Dashboard() {
         )}
       </div>
 
+      {/* Pinned messages side column (command-centre mode) */}
+      {showMessagesSideColumn && (
+        <div
+          data-testid="side-messages-column"
+          className="flex w-[340px] shrink-0 flex-col border-l border-[#2a2a2a] bg-[#0a0a0a] min-h-0"
+        >
+          <div className="flex items-center justify-between border-b border-[#2a2a2a] px-2 py-1">
+            <span className="mono text-[9px] uppercase tracking-[0.3em] text-[#00f0ff]">
+              Messages
+            </span>
+            <button
+              data-testid="unpin-side-messages"
+              onClick={() => setPinMessages(false)}
+              className="border border-transparent p-1 text-neutral-500 hover:border-[#2a2a2a] hover:text-neutral-100"
+              title="Unpin messages"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </div>
+          <div className="flex min-h-0 flex-1">
+            <MessagingPanel
+              radios={radios}
+              groups={groups}
+              messages={messages}
+              currentUser={user}
+            />
+          </div>
+        </div>
+      )}
+
       {/* Right column */}
       {rightOpen ? (
         <div
@@ -525,6 +574,21 @@ export default function Dashboard() {
 
   const SessionActions = (
     <>
+      <button
+        data-testid="toggle-pin-messages"
+        onClick={() => setPinMessages((v) => !v)}
+        title={pinMessages ? "Unpin messages column" : "Pin messages as a side column"}
+        className={`items-center gap-1 border px-2 py-1 mono text-[11px] uppercase tracking-widest ${
+          narrow ? "hidden" : "flex"
+        } ${
+          pinMessages
+            ? "border-[#00f0ff] text-[#00f0ff]"
+            : "border-[#2a2a2a] text-neutral-500 hover:text-neutral-300"
+        }`}
+      >
+        <MessageSquare className="h-3 w-3" />
+        Msg:&nbsp;{pinMessages ? "Pinned" : "Tab"}
+      </button>
       <button
         data-testid="toggle-overlays"
         onClick={() => setOverlaysVisible((v) => !v)}
