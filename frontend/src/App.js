@@ -5,7 +5,6 @@ import Dashboard from "@/pages/Dashboard";
 import Login from "@/pages/Login";
 import Register from "@/pages/Register";
 import AdminUsers from "@/pages/AdminUsers";
-import SuperAdminOrgs from "@/pages/SuperAdminOrgs";
 import SetupGuide from "@/pages/SetupGuide";
 import SituationalView from "@/pages/SituationalView";
 import { AuthProvider } from "@/context/AuthContext";
@@ -44,14 +43,6 @@ function App() {
               element={
                 <ProtectedRoute adminOnly>
                   <AdminUsers />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/admin/orgs"
-              element={
-                <ProtectedRoute adminOnly>
-                  <SuperAdminOrgs />
                 </ProtectedRoute>
               }
             />

@@ -159,11 +159,8 @@ export function RadioDetailModal({
   };
 
   const SelectedIcon = iconFor(icon);
-  const isAdmin = user?.role === "admin" || user?.role === "super_admin";
-  const canDelete = isAdmin;
-  // Emergency ack: admin+ always. Regular user: shown, backend enforces the
-  // per-org `user_can_ack_emergency` toggle and returns 403 if disabled.
-  const canClearEmg = !!radio?.in_emergency;
+  const canDelete = user?.role === "admin";
+  const canClearEmg = user?.role === "admin" && radio?.in_emergency;
 
   return (
     <Dialog open={!!dmrId} onOpenChange={(v) => !v && onClose?.()}>

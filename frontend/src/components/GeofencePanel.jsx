@@ -20,7 +20,7 @@ export function GeofencePanel({ onChange, embedded }) {
   const [radius, setRadius] = useState(1000);
   const [alertOn, setAlertOn] = useState("both");
   const [showForm, setShowForm] = useState(false);
-  const isAdmin = user?.role === "admin" || user?.role === "super_admin";
+  const isAdmin = user?.role === "admin";
 
   const reload = async () => {
     try {
@@ -191,7 +191,7 @@ export function GeofencePanel({ onChange, embedded }) {
 
 export function AlertsPanel({ alerts, onClear, embedded }) {
   const { user } = useAuth();
-  const isAdmin = user?.role === "admin" || user?.role === "super_admin";
+  const isAdmin = user?.role === "admin";
   return (
     <div className={embedded ? "px-3 pb-2" : "border-b border-[#2a2a2a] p-3"} data-testid="alerts-panel">
       {(!embedded || (isAdmin && alerts.length > 0)) && (

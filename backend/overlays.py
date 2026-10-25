@@ -35,12 +35,10 @@ class OverlayStore:
     async def ensure_indexes(self) -> None:
         await self.col.create_index("id", unique=True)
         await self.col.create_index("active")
-        await self.col.create_index("org_id")
 
-    def _new_doc(self, org_id: str, name: str, created_by: str) -> dict:
+    def _new_doc(self, name: str, created_by: str) -> dict:
         return {
             "id": str(uuid.uuid4()),
-            "org_id": org_id,
             "name": name.strip(),
             "active": False,
             "shapes": [],
@@ -50,18 +48,14 @@ class OverlayStore:
             "updated_at": _now_iso(),
         }
 
-    async def create(self, *, org_id: str, name: str, created_by: str) -> dict:
-        doc = self._new_doc(org_id, name, created_by)
+    async def create(self, *, name: str, created_by: str) -> dict:
+        doc = self._new_doc(name, created_by)
         await self.col.insert_one(doc)
         doc.pop("_id", None)
         return doc
 
-    async def list(self, *, only_active: bool = False, org_ids: list[str] | None = None) -> list[dict]:
-        q: dict = {}
-        if only_active:
-            q["active"] = True
-        if org_ids is not None:
-            q["org_id"] = {"$in": org_ids} if org_ids else "__none__"
+    async def list(self, *, only_active: bool = False) -> list[dict]:
+        q = {"active": True} if only_active else {}
         cur = self.col.find(q, {"_id": 0}).sort("created_at", -1)
         return await cur.to_list(200)
 
