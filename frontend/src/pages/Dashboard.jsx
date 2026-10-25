@@ -320,7 +320,7 @@ export default function Dashboard() {
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="min-h-0 flex-1 overflow-hidden">
         {mobileView === "map" && (
-          <div className="grid h-full min-h-0 grid-rows-[1fr_auto]">
+          <div className="grid h-full min-h-0 grid-cols-[minmax(0,1fr)] grid-rows-[minmax(0,1fr)_auto]">
             <MapView
               radios={filteredRadios}
               groups={groups}
@@ -337,7 +337,11 @@ export default function Dashboard() {
               canEditOverlays={isAdmin}
               onMapReady={setMapInstance}
             />
-            {bottomOpen && <PacketLog packets={packets} />}
+            {bottomOpen && (
+              <div className="max-h-40 min-w-0 overflow-hidden">
+                <PacketLog packets={packets} />
+              </div>
+            )}
           </div>
         )}
         {mobileView === "roster" && (

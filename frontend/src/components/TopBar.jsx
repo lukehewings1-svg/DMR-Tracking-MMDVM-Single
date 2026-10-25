@@ -11,7 +11,7 @@ export function TopBar({ status, connected, lastEventAt }) {
       data-testid="topbar"
       className="flex items-center justify-between border-b border-[#2a2a2a] bg-[#050505] px-4 py-2"
     >
-      <div className="flex items-center gap-3">
+      <div className="flex shrink-0 items-center gap-3">
         <div className="flex h-8 w-8 items-center justify-center border border-[#39ff14] text-[#39ff14]">
           <Radio className="h-4 w-4" />
         </div>
@@ -19,13 +19,13 @@ export function TopBar({ status, connected, lastEventAt }) {
           <div className="text-[11px] uppercase tracking-[0.3em] text-neutral-500">
             DMR TRACKER
           </div>
-          <div className="mono text-xs text-neutral-300">
+          <div className="mono hidden text-xs text-neutral-300 sm:block">
             HOMEBREW MASTER · MULTI-BRAND GPS
           </div>
         </div>
       </div>
 
-      <div className="flex items-center gap-6 mono text-[11px]">
+      <div className="ml-3 flex min-w-0 items-center gap-6 overflow-x-auto mono text-[11px]">
         <Metric
           label="LISTENER"
           value={listener ? listener.bind : "…"}

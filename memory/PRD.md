@@ -69,3 +69,15 @@ Iteration 1: 14/14 backend tests pass, all frontend flows validated. Iteration 2
 - WebSocket fan-out: private WS broadcasts `overlay_upserted` / `overlay_removed` on any change; the public WS fan-out converts deactivations into `overlay_removed` so situational viewers drop them locally.
 - Frontend: new `OverlayLayer` (renders shapes + images), `OverlayEditor` (geoman toolbar + debounced save), `OverlayImageCorners` (drag SW/NE corners of an image), `OverlayManagerPanel` (admin sidebar to create/toggle/rename/delete overlay sets + upload images + opacity slider). Global `Overlays: On/Off` toggle in the top strip lets any dispatcher hide overlays locally without deactivating them; the situational-awareness view has an identical toggle.
 - Test status: iteration_8 = 16/16 backend + all frontend flows, 0 issues.
+
+## 2026-06 — Rollback to single-organisation (user request)
+- Multi-org / Event Sessions removed from the live app; restored v1 snapshot (`/app/v1-single-org/`) into `/app/backend` + `/app/frontend`.
+- Multi-org code archived (not running) at `/app/archive/v2-multi-org/` (backend, frontend, README_MULTI_ORG.md, PRD_multi_org.md).
+- MongoDB fully wiped; admin re-seeded from `.env`.
+- Kept Esri Dark Gray Canvas dark layer.
+- Fixes after rollback test (iteration_13): mobile map height 0, map unmount animation crash, login lockout behind proxy (uses X-Forwarded-For), simulate-inbound returns stored message, mobile header overflow.
+- Overlay images now stored in Emergent object storage (served via /api/uploads/overlays/{fname}, soft-delete in `overlay_files`).
+
+## Backlog
+- P1: Sepura LIP GPS decoding
+- P2: Motorola SMS protocol decoding

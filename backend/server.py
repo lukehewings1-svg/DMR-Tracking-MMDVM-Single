@@ -14,12 +14,12 @@ from typing import Deque, List, Optional
 from dotenv import load_dotenv
 from fastapi import APIRouter, Depends, FastAPI, File, Form, HTTPException, Request, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.responses import Response
-from fastapi.staticfiles import StaticFiles
 from motor.motor_asyncio import AsyncIOMotorClient
 from pydantic import BaseModel, ConfigDict, Field
 from starlette.middleware.cors import CORSMiddleware
 
 import auth
+import storage
 from auth import (
     LoginPayload,
     RegisterPayload,
@@ -400,9 +400,9 @@ async def record_packet(packet: dict) -> None:
         await geofence_engine.evaluate(packet)
 
 
-async def on_dmr_sms(inbound: dict) -> None:
+async def on_dmr_sms(inbound: dict) -> Optional[dict]:
     if not message_store:
-        return
+        return None
     radio = await db.radios.find_one(
         {"dmr_id": inbound["from_dmr_id"]}, {"_id": 0, "callsign": 1}
     )
@@ -417,6 +417,7 @@ async def on_dmr_sms(inbound: dict) -> None:
     )
     if shift_log:
         await shift_log.log_message(msg)
+    return msg
 
 
 async def on_voice_activity(evt: dict) -> None:
@@ -510,6 +511,11 @@ async def lifespan(app: FastAPI):
     await situational_store.ensure_indexes()
     overlay_store = OverlayStore(db)
     await overlay_store.ensure_indexes()
+    await db.overlay_files.create_index("fname", unique=True)
+    try:
+        await asyncio.to_thread(storage.init_storage)
+    except Exception as exc:  # noqa: BLE001
+        logger.error("Object storage init failed: %s", exc)
     try:
         hb_transport, hb_master = await start_hb_master(
             HB_BIND_HOST,
@@ -568,7 +574,8 @@ async def api_register(payload: RegisterPayload):
 
 @api_router.post("/auth/login")
 async def api_login(payload: LoginPayload, request: Request):
-    ip = request.client.host if request.client else "unknown"
+    fwd = request.headers.get("x-forwarded-for", "")
+    ip = fwd.split(",")[0].strip() or (request.client.host if request.client else "unknown")
     return await login_user(payload, ip)
 
 
@@ -892,7 +899,7 @@ async def api_send_message(body: MessageSend, user: dict = Depends(get_current_u
 @api_router.post("/messages/simulate-inbound")
 async def api_simulate_inbound(body: InboundSMSInject, _: dict = Depends(get_current_user)):
     """Development helper: inject an inbound SMS as if a radio had sent it."""
-    await on_dmr_sms(
+    return await on_dmr_sms(
         {
             "text": body.text,
             "from_dmr_id": body.from_dmr_id,
@@ -902,7 +909,6 @@ async def api_simulate_inbound(body: InboundSMSInject, _: dict = Depends(get_cur
             "repeater_id": None,
         }
     )
-    return {"ok": True}
 
 
 # --------------------------------------------------------------------------- #
@@ -1062,9 +1068,22 @@ async def api_shift_log_clear(_: dict = Depends(get_current_admin)):
 # --------------------------------------------------------------------------- #
 # Event overlays (drawn shapes + image overlays for event coverage)
 # --------------------------------------------------------------------------- #
-_UPLOADS_DIR = Path("/app/backend/uploads/overlays")
-_UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
 _ALLOWED_IMAGE_EXT = {"png", "jpg", "jpeg", "webp", "gif"}
+_MIME = {"png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg", "webp": "image/webp", "gif": "image/gif"}
+
+
+async def _soft_delete_image_url(url: str) -> None:
+    if url.startswith("/api/uploads/overlays/"):
+        await db.overlay_files.update_one({"fname": url.rsplit("/", 1)[-1]}, {"$set": {"is_deleted": True}})
+
+
+@api_router.get("/uploads/overlays/{fname}")
+async def overlays_image_file(fname: str):
+    rec = await db.overlay_files.find_one({"fname": fname, "is_deleted": False}, {"_id": 0})
+    if not rec:
+        raise HTTPException(status_code=404, detail="File not found")
+    data, ctype = await asyncio.to_thread(storage.get_object, rec["storage_path"])
+    return Response(content=data, media_type=rec.get("content_type") or ctype, headers={"Cache-Control": "public, max-age=86400"})
 
 
 @api_router.get("/overlays")
@@ -1103,15 +1122,8 @@ async def overlays_delete(overlay_id: str, _: dict = Depends(get_current_admin))
     doc = await overlay_store.delete(overlay_id)
     if not doc:
         raise HTTPException(status_code=404, detail="Overlay not found")
-    # Best-effort: delete any uploaded image files that lived only in this set.
     for img in doc.get("images", []) or []:
-        try:
-            url = img.get("url", "")
-            if url.startswith("/api/uploads/overlays/"):
-                fname = url.rsplit("/", 1)[-1]
-                (Path(_UPLOADS_DIR) / fname).unlink(missing_ok=True)
-        except Exception:  # noqa: BLE001
-            pass
+        await _soft_delete_image_url(img.get("url", ""))
     await _broadcast({"type": "overlay_removed", "overlay_id": overlay_id})
     return {"ok": True}
 
@@ -1149,11 +1161,26 @@ async def overlays_add_image(
     if ext not in _ALLOWED_IMAGE_EXT:
         raise HTTPException(status_code=400, detail=f"Unsupported image type .{ext}")
     fname = f"{uuid.uuid4().hex}.{ext}"
-    fpath = _UPLOADS_DIR / fname
     contents = await file.read()
     if len(contents) > 20 * 1024 * 1024:  # 20 MB cap
         raise HTTPException(status_code=413, detail="Image too large (max 20 MB)")
-    fpath.write_bytes(contents)
+    try:
+        result = await asyncio.to_thread(
+            storage.put_object, f"{storage.APP_NAME}/overlays/{fname}", contents, _MIME[ext]
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.error("Overlay image upload failed: %s", exc)
+        raise HTTPException(status_code=502, detail="Image storage unavailable, please retry")
+    await db.overlay_files.insert_one({
+        "fname": fname,
+        "storage_path": result["path"],
+        "original_filename": file.filename,
+        "content_type": _MIME[ext],
+        "size": result.get("size", len(contents)),
+        "overlay_id": overlay_id,
+        "is_deleted": False,
+        "created_at": _now_iso(),
+    })
     url = f"/api/uploads/overlays/{fname}"
     updated = await overlay_store.add_image(
         overlay_id,
@@ -1188,13 +1215,7 @@ async def overlays_delete_image(overlay_id: str, image_id: str, _: dict = Depend
         raise HTTPException(status_code=404, detail="Overlay not found")
     img = next((i for i in doc.get("images", []) if i.get("id") == image_id), None)
     if img:
-        url = img.get("url", "")
-        if url.startswith("/api/uploads/overlays/"):
-            fname = url.rsplit("/", 1)[-1]
-            try:
-                (_UPLOADS_DIR / fname).unlink(missing_ok=True)
-            except Exception:  # noqa: BLE001
-                pass
+        await _soft_delete_image_url(img.get("url", ""))
     updated = await overlay_store.delete_image(overlay_id, image_id)
     await _broadcast({"type": "overlay_upserted", "overlay": updated})
     return updated
@@ -1296,12 +1317,6 @@ async def websocket_endpoint(websocket: WebSocket):
 
 
 app.include_router(api_router)
-# Serve uploaded overlay images under /api/uploads/…
-app.mount(
-    "/api/uploads",
-    StaticFiles(directory="/app/backend/uploads", check_dir=False),
-    name="uploads",
-)
 app.add_middleware(
     CORSMiddleware,
     allow_credentials=True,

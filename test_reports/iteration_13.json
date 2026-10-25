@@ -1,0 +1,41 @@
+{
+  "summary": "Post-rollback (v1 single-org) verification. Backend: new regression file test_v1_rollback.py 15/16 pass (only brute-force lockout fails); full legacy suite 118/121 (1 lockout, 1 stale test expecting response body from /messages/simulate-inbound, 1 xdist-flaky ACL test that passes in isolation). Multi-org endpoints (/api/orgs, /api/events, /api/org-links, /api/super-admin/orgs) all 404; no org/event UI or testids remain. Frontend desktop: login->dashboard, live map, base layers Dark(Esri Dark Gray Canvas, no key)/Streets/Satellite/Terrain switch tiles correctly, overlay create/delete, shift log list + CSV download, register->pending->admin approve->login, dispatcher ACL modal save ('Group access saved'), situational token create + read-only view + bad-token ACCESS DENIED all work. Mobile 390px: tabbar + menu drawer work, BUT the Map tab shows no map (map height 0) because the PacketLog fills the space.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/auth/login", "issue": "Brute-force lockout ineffective behind ingress: identifier is f'{request.client.host}:{email}' and client.host is the ingress pod IP (seen 10.208.133.66 and .69), so failed attempts split across pods; 7+ consecutive bad logins never return 429. Use X-Forwarded-For first IP (or key on email only)."},
+      {"endpoint": "POST /api/messages/simulate-inbound", "issue": "Returns {ok:true} instead of the stored message doc; legacy test tests/test_v12_features.py::TestMessages::test_simulate_inbound expects direction/text/talkgroup_id in the response. The message IS stored (direction='in'). Either return the doc or update the test."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "Dashboard NarrowLayout (mobile Map tab)", "issue": "At 390px the Leaflet map renders with height 0 and width 891px. Root cause: Dashboard.jsx ~line 322 wraps MapView + PacketLog in 'grid h-full grid-rows-[1fr_auto]' and the non-embedded PacketLog has no max-height, so once there are a few dozen packets the auto row takes all height (and long log lines blow out the column width). Fix: grid-cols-[minmax(0,1fr)] + wrap PacketLog in a fixed/max height container (e.g. max-h-40 overflow-hidden) or default bottomOpen=false on narrow.", "selector": "[data-testid='mtab-map'] .leaflet-container", "priority": "HIGH"},
+      {"component": "MapView unmount", "issue": "Uncaught TypeError 'Cannot read properties of undefined (reading _leaflet_pos)' (dev overlay) when navigating away (e.g. nav-admin) right after the dashboard loads while the initial fitBounds/setView zoom animation is running. Fix: map.stop() / cancel animation in cleanup, or fitBounds with {animate:false} for the initial auto-fit.", "selector": "[data-testid='nav-admin']", "priority": "MEDIUM"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Mobile header (390px)", "issues": ["Title 'DMR TRACKER / HOMEBREW MASTER · MULTI-BRAND GPS' wraps over ~6 lines; with header + operator bar + emergency banner about 210px of the 844px height is used before content. Consider hiding the subtitle/stats on narrow screens."]}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/test_v1_rollback.py", "/app/test_reports/pytest/pytest_v1_rollback.xml"],
+  "action_items": [
+    "Fix mobile Map tab: map collapses to 0 height because PacketLog has no height cap in NarrowLayout (Dashboard.jsx grid-rows-[1fr_auto])",
+    "Stop/cancel Leaflet zoom animation on MapView unmount (_leaflet_pos error when navigating away during the initial fitBounds)",
+    "Make login lockout key use the X-Forwarded-For client IP (or email only) so 5 failed attempts actually return 429",
+    "Either return the stored message from /api/messages/simulate-inbound or update the stale legacy test"
+  ],
+  "critical_code_review_comments": [
+    "server.py is 1311 lines; should be split into routers (auth/admin, radios, overlays, situational, shift-log).",
+    "list_radios ACL query (server.py ~line 667) is a hard-to-read nested ternary; works, but should be simplified.",
+    "CORS uses allow_origins from env defaulting to '*' together with allow_credentials=True; auth is Bearer-token (no httpOnly cookies by design per auth.py docstring), so cookie checks from the playbook are N/A.",
+    "Legacy tests in /app/backend/tests hardcode a default BASE_URL fallback and ADMIN creds; they also leave lots of data behind (groups, emergencies, users) - no teardown."
+  ],
+  "updated_files": ["/app/backend/tests/test_v1_rollback.py"],
+  "success_rate": {"backend": "94% (15/16 new; 118/121 full suite)", "frontend": "90% (desktop flows all pass; mobile map tab broken)"},
+  "test_credentials": "admin@dmrtracker.app / admin123 (from /app/memory/test_credentials.md). bcrypt hash verified to start with $2b$.",
+  "seed_data_creation": "Test runs created users/groups/radios/messages/emergencies/tokens; afterwards I wiped all collections back to the post-rollback state: only the admin user + 2 seeded channels remain.",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "v1 single-org app. Run: cd /app/backend && REACT_APP_BACKEND_URL=... pytest tests/test_v1_rollback.py (pytest.ini enables xdist; use -n0 for isolation). Radio coords are 'last_lat'/'last_lon'. Situational tokens panel lives on /admin/users. Base layer names: Dark, Streets, Satellite, Terrain (+ Street labels overlay). To repro mobile bug: inject >20 packets, view at 390px, Map tab -> .leaflet-container height 0. Dev overlay iframe 'webpack-dev-server-client-overlay' may block clicks after the Leaflet error; remove it via JS to continue.",
+  "rca of the issue": "Mobile map: NarrowLayout grid-rows-[1fr_auto] gives PacketLog (auto, uncapped) priority; the 1fr map row resolves to 0 when log content exceeds the viewport. Earlier iterations passed because the DB had few packets. Lockout: Starlette request.client.host is the ingress proxy pod IP, which varies by request across the ingress replicas."
+}

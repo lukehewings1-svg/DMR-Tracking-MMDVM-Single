@@ -5,11 +5,9 @@ image upload/patch/delete, cascade-delete file cleanup, WS broadcasts
 (private + public), snapshot filter (active-only), and static file serving.
 """
 import os
-import io
 import json
 import time
 import uuid
-from pathlib import Path
 
 import pytest
 import requests
@@ -33,7 +31,6 @@ WS_BASE = BASE_URL.replace("https://", "wss://").replace("http://", "ws://")
 ADMIN_EMAIL = "admin@dmrtracker.app"
 ADMIN_PASSWORD = "admin123"
 
-UPLOADS_DIR = Path("/app/backend/uploads/overlays")
 
 # Minimal 1x1 transparent PNG
 PNG_BYTES = (
@@ -240,26 +237,24 @@ class TestImages:
         oid = overlay["id"]
         up = self._upload(oid, admin_headers).json()
         img = up["images"][0]
-        fname = img["url"].rsplit("/", 1)[-1]
-        fpath = UPLOADS_DIR / fname
-        assert fpath.exists()
+        file_url = f"{BASE_URL}{img['url']}"
+        assert requests.get(file_url).status_code == 200
         r = requests.delete(
             f"{API}/overlays/{oid}/images/{img['id']}", headers=admin_headers
         )
         assert r.status_code == 200
         assert not any(i["id"] == img["id"] for i in r.json()["images"])
-        assert not fpath.exists()
+        assert requests.get(file_url).status_code == 404
 
     def test_cascade_delete_overlay_removes_files(self, admin_headers):
         c = requests.post(f"{API}/overlays", json={"name": "TEST_cascade"}, headers=admin_headers).json()
         oid = c["id"]
         up = TestImages()._upload(oid, admin_headers).json()
-        fname = up["images"][0]["url"].rsplit("/", 1)[-1]
-        fpath = UPLOADS_DIR / fname
-        assert fpath.exists()
+        file_url = f"{BASE_URL}{up['images'][0]['url']}"
+        assert requests.get(file_url).status_code == 200
         d = requests.delete(f"{API}/overlays/{oid}", headers=admin_headers)
         assert d.status_code == 200
-        assert not fpath.exists()
+        assert requests.get(file_url).status_code == 404
 
 
 # ------------------------- WS + snapshot ------------------------- #

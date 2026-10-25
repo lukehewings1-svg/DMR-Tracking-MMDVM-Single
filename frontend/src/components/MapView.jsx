@@ -86,8 +86,8 @@ function FitToRadios({ radios }) {
       .filter((r) => r.last_lat != null && r.last_lon != null)
       .map((r) => [r.last_lat, r.last_lon]);
     if (pts.length === 0) return;
-    if (pts.length === 1) map.setView(pts[0], 13);
-    else map.fitBounds(pts, { padding: [40, 40] });
+    if (pts.length === 1) map.setView(pts[0], 13, { animate: false });
+    else map.fitBounds(pts, { padding: [40, 40], animate: false });
     didFitRef.current = true;
   }, [radios, map]);
   return null;
@@ -98,6 +98,7 @@ function PanTo({ target }) {
   useEffect(() => {
     if (!target) return;
     map.setView(target, Math.max(map.getZoom(), 12), { animate: true });
+    return () => map.stop();
   }, [target, map]);
   return null;
 }
