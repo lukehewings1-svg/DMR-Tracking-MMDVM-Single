@@ -32,6 +32,7 @@ class RepeaterSession:
     repeater_id: int
     address: tuple
     salt: bytes = b""
+    password_used: Optional[str] = None
     authenticated: bool = False
     last_seen: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     streams: Dict[int, bytearray] = field(default_factory=dict)
@@ -98,15 +99,16 @@ class HBMaster(asyncio.DatagramProtocol):
             self._handle_login(data, addr)
         elif data.startswith(b"RPTK") and len(data) >= 8:
             self._handle_auth(data, addr)
+        elif data.startswith(b"RPTCL") and len(data) >= 9:
+            rpt_id = int.from_bytes(data[5:9], "big")
+            self.sessions.pop(rpt_id, None)
+            self._update_online()
+            self._send(b"MSTNAK" + rpt_id.to_bytes(4, "big"), addr)
         elif data.startswith(b"RPTC") and len(data) >= 8:
             self._handle_config(data, addr)
         elif data.startswith(b"RPTPING") and len(data) >= 11:
             rpt_id = int.from_bytes(data[7:11], "big")
             self._send(b"MSTPONG" + rpt_id.to_bytes(4, "big"), addr)
-        elif data.startswith(b"RPTCL") and len(data) >= 9:
-            rpt_id = int.from_bytes(data[5:9], "big")
-            self.sessions.pop(rpt_id, None)
-            self._send(b"MSTNAK" + rpt_id.to_bytes(4, "big"), addr)
 
     def _handle_login(self, data, addr) -> None:
         rpt_id = int.from_bytes(data[4:8], "big")
@@ -129,12 +131,26 @@ class HBMaster(asyncio.DatagramProtocol):
         expected = hashlib.sha256(session.salt + pw).digest()
         if data[8:] == expected:
             session.authenticated = True
+            session.password_used = pw.decode()
             self.stats["repeaters_online"] = sum(
                 1 for s in self.sessions.values() if s.authenticated
             )
             self._send(b"RPTACK" + rpt_id.to_bytes(4, "big"), addr)
         else:
             self._reject(rpt_id, addr, "wrong password")
+
+    def _update_online(self) -> None:
+        self.stats["repeaters_online"] = sum(1 for s in self.sessions.values() if s.authenticated)
+
+    def drop_unauthorised(self) -> None:
+        """After MMDVM passwords change, disconnect sessions that no longer qualify."""
+        if self.password_lookup is None:
+            return
+        for rpt_id, sess in list(self.sessions.items()):
+            if sess.authenticated and (sess.password_used is None or self.password_lookup(rpt_id) != sess.password_used):
+                self.sessions.pop(rpt_id, None)
+                self._send(b"MSTCL" + rpt_id.to_bytes(4, "big"), sess.address)
+        self._update_online()
 
     def _reject(self, rpt_id: int, addr, reason: str) -> None:
         import time as _t
@@ -154,6 +170,9 @@ class HBMaster(asyncio.DatagramProtocol):
         src_id = int.from_bytes(data[5:8], "big")
         dst_id = int.from_bytes(data[8:11], "big")
         rpt_id = int.from_bytes(data[11:15], "big")
+        session = self.sessions.get(rpt_id)
+        if not session or not session.authenticated or session.address[0] != addr[0]:
+            return  # only logged-in MMDVMs may send traffic
         bits = data[15]
         stream_id = int.from_bytes(data[16:20], "big")
         payload = data[20:53]

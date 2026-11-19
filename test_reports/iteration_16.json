@@ -1,0 +1,46 @@
+{
+  "summary": "Iteration 17 features tested (report saved as iteration_16 because no iteration_16.json existed). Backend: 22/22 new pytest tests pass (tests/test_v17_connection_mmdvm.py). They cover GET/PUT /api/admin/connection, pending_restart logic, 422 validation, public-ip, admin-only access (no token 401/403, non-admin 403), MMDVM CRUD with 409 and 404, and real UDP HomeBrew login enforcement (shared mode, per-MMDVM mode, immediate effect, rejected_logins, back to shared mode after delete). Production build: REACT_APP_SAME_ORIGIN=true yarn build OK. :8001 serves index.html for / /board /dispatch /admin and serves /static js. /api/ returns JSON, /api/xyz returns 404 JSON, path traversal is blocked. Build folder deleted. Clean clone check: yarn install --frozen-lockfile and yarn build compile OK (only 1 eslint warning). A fresh venv with requirements-windows.txt imports server OK. /tmp/cleancheck removed. UI: both Admin panels work end to end: detect IP, save, reload persistence, pending warning, 422 toasts, add from rejected with ID pre-filled, mask/reveal, setup info and ini, duplicate 409 toast, edit, delete. Regression for /board, /dispatch (voice panel), / and /admin panels passed with no page errors. Settings restored to defaults (pending_restart=false). No MMDVMs or test users left. Restart was never called. Found 2 real ingest issues (see critical code review) and 1 launcher issue that probably affects Windows.",
+  "backend_issues": {
+    "critical": [
+      {"endpoint": "UDP HomeBrew dmr_ingest._handle_dmrd", "issue": "DMRD frames are processed whether or not the sender has an authenticated session. They are relayed to all authenticated MMDVMs, passed to on_voice, and parsed for emergencies and GPS. So the new per-MMDVM password only controls who receives traffic, not who can inject it. Any host that can reach UDP 62031 can inject voice, SOS and GPS without logging in. Fix: at the top of _handle_dmrd, `session = self.sessions.get(rpt_id); if not session or not session.authenticated: return` (optionally also check addr == session.address).", "priority": "HIGH"},
+      {"endpoint": "UDP HomeBrew dmr_ingest datagram dispatch", "issue": "RPTCL (repeater disconnect) is never handled. The `elif data.startswith(b'RPTC')` branch comes before the RPTCL branch, so RPTCL matches it and gets RPTACK instead of closing the session. Seen in testing: after sending RPTCL, repeaters 234500101 and 234500177 still show authenticated in /api/repeaters (ghost sessions, header shows REPEATERS 2). Fix: check RPTCL before RPTC.", "priority": "HIGH"}
+    ],
+    "minor": [
+      {"endpoint": "per-MMDVM mode switch", "issue": "Sessions already authenticated stay authenticated after MMDVMs are added or a password is changed or deleted. The new rules apply only to new logins, so an MMDVM that connected with the shared password stays connected (and shows green) until it reconnects. Consider dropping sessions whose ID/password no longer match in _load_mmdvm_passwords."},
+      {"endpoint": "POST /api/xyz", "issue": "Returns 405 (from the GET catch-all route) instead of 404. Cosmetic."},
+      {"endpoint": "rejected_logins", "issue": "Held in memory only, so it is cleared on every backend reload or restart. Acceptable, but worth noting."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {"flow": "Admin > MMDVMs panel state", "issue": "The `conn` object (rejected_logins, per_mmdvm_passwords) is loaded only once by ConnectionPanel. After adding or deleting an MMDVM, the Shared password hint ('Used until you add MMDVMs below' vs 'Not used') and the refused-logins list stay stale until the page reloads or Save is clicked. Call getConnection after MMDVM save/delete, or poll it.", "affected_selectors": ["mmdvm-rejected", "conn-shared-password"]}
+    ],
+    "design_issues": [
+      {"screen": "Admin > Server connection", "issues": ["The conn-local-host placeholder (the detected IP, e.g. 10.30.18.249) looks almost the same as a typed value, so users may think a local address is already saved. Use a dimmer placeholder colour (placeholder:text-neutral-600)."]}
+    ]
+  },
+  "critical_code_review_comments": [
+    "start-dmr-tracker.bat line 36: `Get-ChildItem src,public -Recurse -File | Measure-Object LastWriteTime -Maximum` uses Measure-Object -Maximum on DateTime values. Windows PowerShell 5.1 (the default powershell.exe on Windows 10/11) only supports numeric values for this and gives the error 'Input object ... is not numeric' (non-numeric support came in PowerShell 6+). The error is non-terminating, so $n becomes $null, the check returns false, and the dashboard is NOT rebuilt after an update that changes src. The user would see a stale dashboard, and a red error prints on every start. Safer: `$n=(Get-ChildItem src,public -Recurse -File | Sort-Object LastWriteTime -Descending | Select-Object -First 1).LastWriteTime`. This could not be run here (no PowerShell in the container), so it needs checking on Windows.",
+    "frontend/yarn.lock has never been committed to git (it is untracked and not ignored). A user's GitHub clone has no lockfile, so `yarn install` picks the latest semver-matching versions. This is a likely cause of 'Failed to compile' problems after updates. The clean clone built fine today, but the versions are not pinned. Commit frontend/yarn.lock. The launcher's `Get-Item yarn.lock` also errors when the file is missing (harmless but noisy).",
+    "The rest of the launcher, dev launcher, create-desktop-shortcut.ps1 (two icons, ico is tracked in git) and run-backend.bat (restart loop on errorlevel 3) look syntactically fine. Setting REACT_APP_SAME_ORIGIN inside the if-block is inherited by `call yarn build` as expected.",
+    "server.py is 1714 lines; consider splitting out the connection/MMDVM routes.",
+    "OverlayEditor.jsx line 173 has a react-hooks/exhaustive-deps warning. The build fails on it if CI=true is set.",
+    "Auth playbook: the password hash is $2b$ bcrypt. There are no httpOnly cookies (a Bearer token in localStorage, by design) and no brute-force lockout on /api/auth/login. Both predate this iteration."
+  ],
+  "test_report_links": ["/app/backend/tests/test_v17_connection_mmdvm.py", "/app/test_reports/pytest/pytest_v17.xml"],
+  "action_items": [
+    "dmr_ingest._handle_dmrd: ignore DMRD from unauthenticated or unknown repeater sessions (security bypass of the MMDVM passwords)",
+    "dmr_ingest: handle RPTCL before the RPTC prefix check so disconnects close sessions",
+    "start-dmr-tracker.bat: replace Measure-Object -Maximum on DateTime with Sort-Object/Select-Object -First 1 (PowerShell 5.1 compatibility)",
+    "Commit frontend/yarn.lock to git so user installs are reproducible",
+    "Refresh connection info in MmdvmsPanel/ConnectionPanel after MMDVM add/edit/delete",
+    "Optional: drop live sessions that no longer pass the password check when MMDVMs change"
+  ],
+  "updated_files": ["/app/backend/tests/test_v17_connection_mmdvm.py"],
+  "success_rate": {"backend": "100% of API tests (22/22); 2 ingest protocol bugs found by code review and observation", "frontend": "100% of requested UI flows"},
+  "seed_data_creation": "None kept. Temporary TEST_ MMDVMs and a test_ user were created and deleted by id. Connection settings were restored to defaults. The ghost in-memory HB sessions 234500101 and 234500177 (caused by the RPTCL bug) stay until the next backend reload.",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Run the backend tests serially: `cd /app/backend && pytest tests/test_v17_connection_mmdvm.py -n 0`. The tests need zero registered MMDVMs at start, and they restore connection defaults. Never call POST /api/admin/restart. Creating or editing files under /app/backend triggers a hot reload, which clears rejected_logins and HB sessions. After the RPTCL/DMRD fixes, add tests: an unauthenticated DMRD is not relayed, and RPTCL removes the session from /api/repeaters."
+}

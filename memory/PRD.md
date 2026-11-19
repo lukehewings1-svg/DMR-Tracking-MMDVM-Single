@@ -110,3 +110,4 @@ Iteration 1: 14/14 backend tests pass, all frontend flows validated. Iteration 2
 - Admin → Server connection: public host/global IP (+ detect), local host, detected local IPs, UDP port, shared password, server DMR ID, colour code, voice/data slot — saved in db.settings{_id:connection}, applied on next restart (Restart now button → exit code 3).
 - Admin → MMDVMs & passwords: per-MMDVM passwords (db.mmdvms), applied immediately; when list empty the shared password applies; refused logins listed with quick add; per-MMDVM Pi-Star values + MMDVMHost.ini snippet.
 - Voice Recording feature: requested (admins only, 30 days, local + online, download) — NOT built yet.
+- Security fixes (iteration_16): DMRD only accepted from authenticated MMDVM sessions (same IP); RPTCL handled before RPTC; sessions dropped when MMDVM passwords change. Open: conn panel hints/rejected list refresh only on reload; POST unknown path 405; rejected logins in-memory only; placeholder contrast.

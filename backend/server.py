@@ -1452,6 +1452,8 @@ async def _load_mmdvm_passwords() -> None:
     _mmdvm_pw.clear()
     async for m in db.mmdvms.find({}, {"_id": 0, "repeater_id": 1, "password": 1}):
         _mmdvm_pw[m["repeater_id"]] = m["password"]
+    if hb_master:
+        hb_master.drop_unauthorised()
 
 
 def _mmdvm_password(rpt_id: int) -> Optional[str]:
