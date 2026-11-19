@@ -205,6 +205,7 @@ radios and settings are kept — MongoDB lives outside this folder):
 | Invalid credentials | Admin is created on first start only. Changed `ADMIN_PASSWORD` later? Delete the `users` collection (MongoDB Compass) and restart backend |
 | `HB Master could not bind` | Port 62031 in use — change `HB_BIND_PORT` and the Pi-Star port |
 | MMDVM never connects | Firewall rule, network set to Private, matching password, no VPN active |
+| **"Failed to compile" / "Module not found" after an update** | New packages weren't installed yet. Close both app windows and start again from the desktop icon — the launcher now installs new packages automatically. Manual fix: `cd C:\dmr-tracker\frontend; yarn install` and `cd C:\dmr-tracker\backend; .\venv\Scripts\Activate.ps1; pip install -r requirements-windows.txt` |
 | `yarn` not recognised | Reopen PowerShell after `npm install -g yarn` |
 | Overlay image upload fails | Set `EMERGENT_LLM_KEY` in `backend\.env` and make sure the laptop has internet |
 | Stops receiving overnight | *Settings → System → Power → Sleep → Never* (when plugged in) |

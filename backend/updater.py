@@ -81,13 +81,19 @@ def _apply_worker(loop: asyncio.AbstractEventLoop) -> None:
             _log("Installing backend packages…")
             res = _run([sys.executable, "-m", "pip", "install", "-r", str(req)], timeout=600)
             _log("Backend packages updated." if res.returncode == 0 else f"pip failed: {res.stderr[-400:]}")
+            venv_stamp = ROOT / "backend" / "venv" / ".dmr-stamp"
+            if res.returncode == 0 and venv_stamp.parent.exists():
+                venv_stamp.touch()
         yarn = shutil.which("yarn")
         front = ROOT / "frontend"
         if yarn and changed & {"frontend/package.json", "frontend/yarn.lock"}:
             _log("Installing frontend packages (can take a few minutes)…")
             res = _run([yarn, "install"], cwd=front, timeout=900)
             _log("Frontend packages updated." if res.returncode == 0 else f"yarn install failed: {res.stderr[-400:]}")
-            _job["restart_needed_for_frontend"] = not (front / "build").exists()
+            entry = front / "src" / "index.js"
+            if entry.exists():
+                os.utime(entry)  # make the running dev server recompile with the new packages
+            (front / "node_modules" / ".dmr-stamp").touch()
         if yarn and (front / "build").exists() and any(f.startswith("frontend/") for f in changed):
             _log("Rebuilding the dashboard…")
             res = _run([yarn, "build"], cwd=front, timeout=900)
