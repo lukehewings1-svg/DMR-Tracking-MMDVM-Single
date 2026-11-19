@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { toast } from "sonner";
-import { Filter, Cpu, Users, Antenna, Bell, ShieldAlert, FlaskConical, ShieldCheck, BookOpen, Trash2, ScrollText, Download, Mic } from "lucide-react";
+import { Filter, Cpu, Users, Antenna, Bell, ShieldAlert, FlaskConical, ShieldCheck, BookOpen, Trash2, ScrollText, Download, Mic, Network, Server } from "lucide-react";
 import { MapView } from "@/components/MapView";
 import { ScreenShell } from "@/components/ScreenShell";
 import { CollapsiblePanel } from "@/components/CollapsiblePanel";
@@ -16,6 +16,8 @@ import { Injector } from "@/components/Injector";
 import { PacketLog } from "@/components/PacketLog";
 import { UpdatePanel } from "@/components/UpdatePanel";
 import { GatewaysPanel } from "@/components/GatewaysPanel";
+import { ConnectionPanel } from "@/components/ConnectionPanel";
+import { MmdvmsPanel } from "@/components/MmdvmsPanel";
 import { useLiveData } from "@/hooks/useLiveData";
 import { useOverlays } from "@/hooks/useOverlays";
 import { clearAll } from "@/lib/api";
@@ -30,6 +32,7 @@ export default function AdminSetup() {
   const [mapInstance, setMapInstance] = useState(null);
   const [channelFilter, setChannelFilter] = useState(null);
   const editingOverlay = overlays.find((o) => o.id === editingOverlayId) || null;
+  const [conn, setConn] = useState(null);
 
   const handleClear = async () => {
     if (!window.confirm("Clear all radios and history?")) return;
@@ -56,6 +59,12 @@ export default function AdminSetup() {
     <ScreenShell live={live} testid="admin-setup-page" title="Admin setup" actions={actions}>
       <div className="flex min-h-0 flex-1 flex-col lg:grid lg:grid-cols-[420px_minmax(0,1fr)]">
         <div data-testid="admin-panels" className="min-h-0 overflow-y-auto border-r border-[#2a2a2a] bg-[#0a0a0a] max-lg:max-h-[55vh]">
+          <CollapsiblePanel id="adm-connection" title="Server connection (for MMDVMs)" icon={<Server className="h-3 w-3" />} testid="admin-panel-connection">
+            <ConnectionPanel onLoaded={setConn} />
+          </CollapsiblePanel>
+          <CollapsiblePanel id="adm-mmdvm-list" title="MMDVMs & passwords" icon={<Network className="h-3 w-3" />} testid="admin-panel-mmdvm-list">
+            <MmdvmsPanel conn={conn} repeaters={repeaters} />
+          </CollapsiblePanel>
           <CollapsiblePanel id="adm-update" title="Software update" icon={<Download className="h-3 w-3" />} testid="admin-panel-update">
             <UpdatePanel />
           </CollapsiblePanel>

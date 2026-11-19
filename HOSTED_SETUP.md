@@ -130,6 +130,12 @@ approve them on the **Users** page.
 
 ## 7. Point MMDVMs / Pi-Star at the server
 
+Easiest: **Admin → Server connection** — enter your domain/public IP, then
+**Admin → MMDVMs & passwords → Add MMDVM** (each gets its own password) and
+open the row to copy the exact Pi-Star / MMDVMHost settings. Port, colour code
+and timeslot changes are saved there and apply after the next restart
+(**Restart now** button). The values below are the manual equivalent.
+
 Pi-Star → *Configuration → Expert → DMR Network* (or MMDVMHost `[DMR Network]`):
 
 | Setting | Value |

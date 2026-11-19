@@ -1,6 +1,8 @@
 import axios from "axios";
 
-export const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
+// Production build served by the backend itself uses whatever address the page was opened on.
+export const BACKEND_URL =
+  process.env.REACT_APP_SAME_ORIGIN === "true" ? window.location.origin : process.env.REACT_APP_BACKEND_URL;
 export const API = `${BACKEND_URL}/api`;
 export const TOKEN_KEY = "dmr_token";
 
@@ -192,3 +194,12 @@ export const voiceWsUrl = () => {
   url.searchParams.set("token", localStorage.getItem(TOKEN_KEY) || "");
   return url.toString();
 };
+
+export const getConnection = () => api.get("/admin/connection").then((r) => r.data);
+export const saveConnection = (body) => api.put("/admin/connection", body).then((r) => r.data);
+export const detectPublicIp = () => api.get("/admin/connection/public-ip").then((r) => r.data);
+export const restartServer = () => api.post("/admin/restart").then((r) => r.data);
+export const listMmdvms = () => api.get("/mmdvms").then((r) => r.data);
+export const addMmdvm = (body) => api.post("/mmdvms", body).then((r) => r.data);
+export const updateMmdvm = (id, body) => api.put(`/mmdvms/${id}`, body).then((r) => r.data);
+export const deleteMmdvm = (id) => api.delete(`/mmdvms/${id}`).then((r) => r.data);

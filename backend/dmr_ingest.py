@@ -57,6 +57,10 @@ class HBMaster(asyncio.DatagramProtocol):
         channel_router=None,
     ):
         self.password = password.encode()
+        # Optional per-MMDVM passwords: callable(repeater_id) -> str | None.
+        # When set and it returns None the login is refused.
+        self.password_lookup = None
+        self.rejected: list = []
         self.on_gps = on_gps
         self.on_sms = on_sms
         self.on_voice = on_voice
@@ -116,7 +120,13 @@ class HBMaster(asyncio.DatagramProtocol):
         session = self.sessions.get(rpt_id)
         if not session:
             return
-        expected = hashlib.sha256(session.salt + self.password).digest()
+        pw = self.password if self.password_lookup is None else self.password_lookup(rpt_id)
+        if pw is None:
+            self._reject(rpt_id, addr, "MMDVM ID not registered")
+            return
+        if isinstance(pw, str):
+            pw = pw.encode()
+        expected = hashlib.sha256(session.salt + pw).digest()
         if data[8:] == expected:
             session.authenticated = True
             self.stats["repeaters_online"] = sum(
@@ -124,7 +134,15 @@ class HBMaster(asyncio.DatagramProtocol):
             )
             self._send(b"RPTACK" + rpt_id.to_bytes(4, "big"), addr)
         else:
-            self._send(b"MSTNAK" + rpt_id.to_bytes(4, "big"), addr)
+            self._reject(rpt_id, addr, "wrong password")
+
+    def _reject(self, rpt_id: int, addr, reason: str) -> None:
+        import time as _t
+        self.sessions.pop(rpt_id, None)
+        self.rejected = [r for r in self.rejected if r["repeater_id"] != rpt_id][-19:]
+        self.rejected.append({"repeater_id": rpt_id, "ip": addr[0], "reason": reason, "at": _t.strftime("%Y-%m-%dT%H:%M:%SZ", _t.gmtime())})
+        logger.warning("HB login refused for %s @ %s: %s", rpt_id, addr[0], reason)
+        self._send(b"MSTNAK" + rpt_id.to_bytes(4, "big"), addr)
 
     def _handle_config(self, data, addr) -> None:
         rpt_id = int.from_bytes(data[4:8], "big")

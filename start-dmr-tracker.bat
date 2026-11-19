@@ -29,10 +29,21 @@ if "%NEED_PIP%"=="1" (
   type nul > venv\.dmr-stamp
 )
 
-start "DMR Tracker - Backend" /D "%ROOT%backend" cmd /c run-backend.bat
-start "DMR Tracker - Frontend" /D "%ROOT%frontend" cmd /k "set BROWSER=none&& yarn start"
+rem --- Build the dashboard when it's missing or the code changed ---
+cd /d "%ROOT%frontend"
+set "NEED_BUILD=0"
+if not exist build\.same-origin set "NEED_BUILD=1"
+if "%NEED_BUILD%"=="0" powershell -NoProfile -Command "$b=(Get-Item build\.same-origin).LastWriteTime; $n=(Get-ChildItem src,public -Recurse -File | Measure-Object LastWriteTime -Maximum).Maximum; if ($n -gt $b -or (Get-Item package.json).LastWriteTime -gt $b) { exit 1 }" || set "NEED_BUILD=1"
+if "%NEED_BUILD%"=="1" (
+  echo Building the dashboard - about a minute, only after updates...
+  set "REACT_APP_SAME_ORIGIN=true"
+  call yarn build || (echo Dashboard build failed - see the messages above. & pause & exit /b 1)
+  type nul > build\.same-origin
+)
+
+start "DMR Tracker - Server" /D "%ROOT%backend" cmd /c run-backend.bat
 
 echo Starting DMR Tracker, the browser will open when it is ready...
-powershell -NoProfile -Command "$t=0; while ($t -lt 240) { try { Invoke-WebRequest -UseBasicParsing http://localhost:3000 -TimeoutSec 2 | Out-Null; break } catch { Start-Sleep 2; $t+=2 } }"
-start "" http://localhost:3000
+powershell -NoProfile -Command "$t=0; while ($t -lt 120) { try { Invoke-WebRequest -UseBasicParsing http://localhost:8001/ -TimeoutSec 2 | Out-Null; break } catch { Start-Sleep 2; $t+=2 } }"
+start "" http://localhost:8001
 exit

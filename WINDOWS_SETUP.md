@@ -131,7 +131,18 @@ restart `yarn start`, then browse to `http://192.168.1.50:3000` from phones/tabl
 
 ## 8. Daily start-up
 
-### Desktop shortcut (one-time)
+The **DMR Tracker** icon runs the fast *production* version: one window
+("DMR Tracker - Server"), dashboard at **http://localhost:8001** (other devices:
+`http://<laptop-ip>:8001`). It builds the dashboard automatically the first
+time and after every update (about a minute), otherwise it starts in seconds.
+The **DMR Tracker (dev mode)** icon runs the old two-window developer mode on
+port 3000 (live code reload) — only needed when testing code changes.
+
+MMDVM settings (addresses, port, passwords, colour code, timeslots) are set on
+**Admin → Server connection** and **Admin → MMDVMs & passwords**, which also
+show the exact Pi-Star values to copy for each MMDVM.
+
+### Desktop shortcuts (one-time — re-run after this update to get the new icons)
 From `C:\dmr-tracker` in PowerShell:
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\create-desktop-shortcut.ps1

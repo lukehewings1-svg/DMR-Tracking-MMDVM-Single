@@ -104,3 +104,9 @@ Iteration 1: 14/14 backend tests pass, all frontend flows validated. Iteration 2
 - Pi software: /app/gateway (dmr818_gateway.py, install-gateway.sh, gateway.example.ini). Docs: VOICE_SETUP.md.
 - UI: Dispatch VoicePanel (talkgroup or one radio, hold button / space bar, listen + volume, RX/TX line), modal PTT uses same client, Admin Voice panel (dongle status, gateways + one-time key).
 - Not hardware-tested (dongle, DMR818). Open findings: ACL computed at voice connect; voice_status RX info visible to restricted dispatchers; gateway RX ignored when dongle detected but no repeaters; GatewaysPanel errors unhandled; DELETE unknown gateway 200; playSiren AudioContext pile-up; PTT not disabled during RX; <span> in <option> console warning.
+
+## 2026-11 — Production mode + MMDVM settings in Admin
+- Backend serves frontend/build (SPA fallback, /api untouched) when it exists; REACT_APP_SAME_ORIGIN=true build uses window.location.origin. Windows: start-dmr-tracker.bat = production (one window, :8001, auto yarn install/pip install/yarn build when stale); start-dmr-tracker-dev.bat = old dev mode; create-desktop-shortcut.ps1 makes both icons. Updater rebuilds with same-origin when build/.same-origin exists.
+- Admin → Server connection: public host/global IP (+ detect), local host, detected local IPs, UDP port, shared password, server DMR ID, colour code, voice/data slot — saved in db.settings{_id:connection}, applied on next restart (Restart now button → exit code 3).
+- Admin → MMDVMs & passwords: per-MMDVM passwords (db.mmdvms), applied immediately; when list empty the shared password applies; refused logins listed with quick add; per-MMDVM Pi-Star values + MMDVMHost.ini snippet.
+- Voice Recording feature: requested (admins only, 30 days, local + online, download) — NOT built yet.

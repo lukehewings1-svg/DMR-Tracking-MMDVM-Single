@@ -14,7 +14,7 @@ from typing import Deque, List, Optional
 
 from dotenv import load_dotenv
 from fastapi import APIRouter, Depends, FastAPI, File, Form, HTTPException, Request, UploadFile, WebSocket, WebSocketDisconnect
-from fastapi.responses import Response
+from fastapi.responses import FileResponse, Response
 from motor.motor_asyncio import AsyncIOMotorClient
 from pydantic import BaseModel, ConfigDict, Field
 from starlette.middleware.cors import CORSMiddleware
@@ -34,6 +34,7 @@ from auth import (
     to_public,
 )
 from channels import ChannelStore, RepeaterConfigStore
+import dmr_ingest
 from dmr_ingest import HBMaster, start_hb_master
 from dmr_parsers import parse_gps_payload, parser_names
 from geofence import GeofenceEngine
@@ -498,9 +499,17 @@ async def send_dmrd_broadcast(frame: bytes) -> int:
 # --------------------------------------------------------------------------- #
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    global HB_BIND_PORT, HB_PASSWORD, SERVER_DMR_ID, DATA_SLOT, RUNNING_SETTINGS
     global voice_hub, hb_master, hb_transport, geofence_engine, group_store, channel_store, repeater_config_store, message_store, shift_log, overlay_store, situational_store
     await auth.ensure_indexes()
     await auth.seed_admin()
+    RUNNING_SETTINGS = await _effective_settings()
+    HB_BIND_PORT = RUNNING_SETTINGS["hb_port"]
+    HB_PASSWORD = RUNNING_SETTINGS["shared_password"]
+    SERVER_DMR_ID = RUNNING_SETTINGS["server_dmr_id"]
+    DATA_SLOT = RUNNING_SETTINGS["data_slot"]
+    dmr_ingest.VOICE_SLOT = RUNNING_SETTINGS["voice_slot"]
+    await _load_mmdvm_passwords()
     geofence_engine = GeofenceEngine(db, _broadcast)
     group_store = GroupStore(db)
     await group_store.ensure_indexes()
@@ -540,6 +549,7 @@ async def lifespan(app: FastAPI):
             on_emergency,
             channel_router=repeater_config_store,
         )
+        hb_master.password_lookup = _mmdvm_password
     except OSError as exc:
         logger.warning("HB Master could not bind to %s:%s (%s).", HB_BIND_HOST, HB_BIND_PORT, exc)
         hb_transport = None
@@ -549,8 +559,8 @@ async def lifespan(app: FastAPI):
     voice_hub = VoiceHub(
         dongle=dongle,
         server_id=SERVER_DMR_ID,
-        voice_slot=int(os.environ.get("VOICE_SLOT") or 2),
-        color_code=int(os.environ.get("DMR_COLOR_CODE") or 1),
+        voice_slot=RUNNING_SETTINGS["voice_slot"],
+        color_code=RUNNING_SETTINGS["color_code"],
         send_dmrd=send_dmrd_broadcast,
         repeaters_online=lambda: sum(1 for s in hb_master.sessions.values() if s.authenticated) if hb_master else 0,
         radio_lookup=lambda dmr_id: db.radios.find_one({"dmr_id": dmr_id}, {"_id": 0, "callsign": 1, "group_id": 1}),
@@ -1413,6 +1423,157 @@ async def gateway_ws(websocket: WebSocket):
 
 
 # --------------------------------------------------------------------------- #
+# MMDVM connection settings (saved in DB, applied on next restart) and
+# per-MMDVM passwords (applied immediately)
+# --------------------------------------------------------------------------- #
+RUNNING_SETTINGS: dict = {}
+_mmdvm_pw: dict[int, str] = {}
+
+
+def _env_settings() -> dict:
+    return {
+        "public_host": "",
+        "local_host": "",
+        "hb_port": int(os.environ.get("HB_BIND_PORT") or 62031),
+        "shared_password": os.environ.get("HB_PASSWORD") or "PASSWORD",
+        "server_dmr_id": int(os.environ.get("SERVER_DMR_ID") or 9990001),
+        "color_code": int(os.environ.get("DMR_COLOR_CODE") or 1),
+        "voice_slot": int(os.environ.get("VOICE_SLOT") or 2),
+        "data_slot": int(os.environ.get("DATA_SLOT") or 1),
+    }
+
+
+async def _effective_settings() -> dict:
+    saved = await db.settings.find_one({"_id": "connection"}, {"_id": 0}) or {}
+    return {**_env_settings(), **{k: v for k, v in saved.items() if k in _env_settings()}}
+
+
+async def _load_mmdvm_passwords() -> None:
+    _mmdvm_pw.clear()
+    async for m in db.mmdvms.find({}, {"_id": 0, "repeater_id": 1, "password": 1}):
+        _mmdvm_pw[m["repeater_id"]] = m["password"]
+
+
+def _mmdvm_password(rpt_id: int) -> Optional[str]:
+    if not _mmdvm_pw:  # nothing registered yet: shared password
+        return HB_PASSWORD
+    return _mmdvm_pw.get(rpt_id)
+
+
+def _local_ips() -> list[str]:
+    import socket
+    ips = set()
+    try:
+        for info in socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET):
+            ips.add(info[4][0])
+    except OSError:
+        pass
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+            s.connect(("8.8.8.8", 80))
+            ips.add(s.getsockname()[0])
+    except OSError:
+        pass
+    return sorted(ip for ip in ips if not ip.startswith("127."))
+
+
+class ConnectionSettings(BaseModel):
+    public_host: str = Field(default="", max_length=253)
+    local_host: str = Field(default="", max_length=253)
+    hb_port: int = Field(ge=1024, le=65535)
+    shared_password: str = Field(min_length=1, max_length=64)
+    server_dmr_id: int = Field(ge=1, le=16777215)
+    color_code: int = Field(ge=0, le=15)
+    voice_slot: int = Field(ge=1, le=2)
+    data_slot: int = Field(ge=1, le=2)
+
+
+@api_router.get("/admin/connection")
+async def get_connection(_: dict = Depends(get_current_admin)):
+    import socket
+    saved = await _effective_settings()
+    return {
+        "saved": saved,
+        "running": RUNNING_SETTINGS,
+        "pending_restart": any(saved[k] != RUNNING_SETTINGS.get(k) for k in ("hb_port", "shared_password", "server_dmr_id", "color_code", "voice_slot", "data_slot")),
+        "local_ips": _local_ips(),
+        "hostname": socket.gethostname(),
+        "listening": hb_master is not None,
+        "rejected_logins": list(reversed(hb_master.rejected)) if hb_master else [],
+        "per_mmdvm_passwords": bool(_mmdvm_pw),
+    }
+
+
+@api_router.put("/admin/connection")
+async def save_connection(body: ConnectionSettings, admin: dict = Depends(get_current_admin)):
+    data = body.model_dump()
+    data["public_host"] = data["public_host"].strip()
+    data["local_host"] = data["local_host"].strip()
+    await db.settings.update_one({"_id": "connection"}, {"$set": {**data, "updated_at": _now_iso(), "updated_by": admin["email"]}}, upsert=True)
+    return await get_connection(admin)
+
+
+@api_router.get("/admin/connection/public-ip")
+async def detect_public_ip(_: dict = Depends(get_current_admin)):
+    import requests as _rq
+    try:
+        ip = (await asyncio.to_thread(lambda: _rq.get("https://api.ipify.org", timeout=6).text)).strip()
+        return {"ip": ip}
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=502, detail=f"Couldn't detect public IP: {exc}")
+
+
+@api_router.post("/admin/restart")
+async def restart_server(_: dict = Depends(get_current_admin)):
+    asyncio.get_running_loop().call_later(1.0, os._exit, updater.RESTART_EXIT_CODE)
+    return {"ok": True}
+
+
+class MmdvmIn(BaseModel):
+    name: str = Field(min_length=1, max_length=60)
+    repeater_id: int = Field(ge=1, le=4294967295)
+    password: str = Field(min_length=6, max_length=64)
+    notes: Optional[str] = Field(default=None, max_length=300)
+
+
+@api_router.get("/mmdvms")
+async def list_mmdvms(_: dict = Depends(get_current_admin)):
+    return await db.mmdvms.find({}, {"_id": 0}).sort("name", 1).to_list(500)
+
+
+@api_router.post("/mmdvms")
+async def add_mmdvm(body: MmdvmIn, _: dict = Depends(get_current_admin)):
+    if await db.mmdvms.find_one({"repeater_id": body.repeater_id}):
+        raise HTTPException(status_code=409, detail="An MMDVM with that ID is already registered")
+    doc = {"id": str(uuid.uuid4()), **body.model_dump(), "created_at": _now_iso()}
+    await db.mmdvms.insert_one(doc)
+    doc.pop("_id", None)
+    await _load_mmdvm_passwords()
+    return doc
+
+
+@api_router.put("/mmdvms/{mmdvm_id}")
+async def update_mmdvm(mmdvm_id: str, body: MmdvmIn, _: dict = Depends(get_current_admin)):
+    clash = await db.mmdvms.find_one({"repeater_id": body.repeater_id, "id": {"$ne": mmdvm_id}})
+    if clash:
+        raise HTTPException(status_code=409, detail="Another MMDVM already uses that ID")
+    res = await db.mmdvms.update_one({"id": mmdvm_id}, {"$set": body.model_dump()})
+    if not res.matched_count:
+        raise HTTPException(status_code=404, detail="MMDVM not found")
+    await _load_mmdvm_passwords()
+    return await db.mmdvms.find_one({"id": mmdvm_id}, {"_id": 0})
+
+
+@api_router.delete("/mmdvms/{mmdvm_id}")
+async def delete_mmdvm(mmdvm_id: str, _: dict = Depends(get_current_admin)):
+    res = await db.mmdvms.delete_one({"id": mmdvm_id})
+    if not res.deleted_count:
+        raise HTTPException(status_code=404, detail="MMDVM not found")
+    await _load_mmdvm_passwords()
+    return {"ok": True}
+
+
+# --------------------------------------------------------------------------- #
 # Self-update (git pull from the GitHub repo this copy was cloned from)
 # --------------------------------------------------------------------------- #
 @api_router.get("/admin/update/status")
@@ -1536,3 +1697,18 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+# Serve the production dashboard (frontend/build) from this same server when it
+# exists - one app, one address (http://<this computer>:8001).
+_BUILD = Path(__file__).resolve().parent.parent / "frontend" / "build"
+
+
+@app.get("/{full_path:path}", include_in_schema=False)
+async def serve_dashboard(full_path: str):
+    if full_path.startswith("api/") or not (_BUILD / "index.html").exists():
+        raise HTTPException(status_code=404, detail="Not found")
+    f = (_BUILD / full_path).resolve()
+    if full_path and f.is_file() and _BUILD.resolve() in f.parents:
+        return FileResponse(f)
+    return FileResponse(_BUILD / "index.html", headers={"Cache-Control": "no-cache"})

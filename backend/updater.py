@@ -96,7 +96,11 @@ def _apply_worker(loop: asyncio.AbstractEventLoop) -> None:
             (front / "node_modules" / ".dmr-stamp").touch()
         if yarn and (front / "build").exists() and any(f.startswith("frontend/") for f in changed):
             _log("Rebuilding the dashboard…")
-            res = _run([yarn, "build"], cwd=front, timeout=900)
+            same_origin = (front / "build" / ".same-origin").exists()
+            env = {**os.environ, **({"REACT_APP_SAME_ORIGIN": "true"} if same_origin else {})}
+            res = subprocess.run([yarn, "build"], cwd=front, capture_output=True, text=True, timeout=900, env=env)
+            if res.returncode == 0 and same_origin:
+                (front / "build" / ".same-origin").touch()
             _log("Dashboard rebuilt." if res.returncode == 0 else f"yarn build failed: {res.stderr[-400:]}")
         _log("Restarting the server…")
         _job["state"] = "restarting"
