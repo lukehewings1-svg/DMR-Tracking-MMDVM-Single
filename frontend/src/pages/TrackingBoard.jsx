@@ -6,6 +6,8 @@ import { EmergencyBanner } from "@/components/EmergencyBanner";
 import { EmergencyFocusCard } from "@/components/EmergencyFocusCard";
 import { TxNowList } from "@/components/TxNowList";
 import { BoardClock } from "@/components/BoardClock";
+import { BoardGroupFilter, filterByGroups } from "@/components/BoardGroupFilter";
+import { usePersistedState } from "@/components/CollapsiblePanel";
 import { useLiveData } from "@/hooks/useLiveData";
 import { useOverlays } from "@/hooks/useOverlays";
 
@@ -30,9 +32,15 @@ export default function TrackingBoard() {
   const [overlays] = useOverlays(live.lastOverlayEvent);
   const [pickedId, setPickedId] = useState(null);
   const soundArmed = useSoundArmed();
+  const [shownGroups, setShownGroups] = usePersistedState("board:groupIds", []);
+  const shownRadios = filterByGroups(radios, shownGroups);
+  // Emergencies always stay on the board, whatever talkgroups are shown.
+  const boardRadios = [...shownRadios, ...radios.filter((r) => r.in_emergency && !shownRadios.includes(r))];
+  const shownTgs = new Set(groups.filter((g) => shownGroups.includes(g.id)).map((g) => g.talkgroup_id));
+  const shownVoice = shownGroups.length ? (voiceActivity || []).filter((v) => shownTgs.has(v.talkgroup_id)) : voiceActivity;
 
   const txActiveIds = useMemo(() => new Set((voiceActivity || []).map((v) => v.src_id)), [voiceActivity]);
-  const withPos = radios.filter((r) => r.last_lat != null);
+  const withPos = shownRadios.filter((r) => r.last_lat != null);
   const emergency = emergencies.find((e) => e.id === pickedId) || emergencies[0] || null;
   const emgRadio = emergency ? radios.find((r) => r.dmr_id === emergency.dmr_id) : null;
   const emgGroup = groups.find((g) => g.id === (emgRadio?.group_id || emergency?.group_id));
@@ -45,14 +53,15 @@ export default function TrackingBoard() {
   return (
     <div data-testid="tracking-board" className="flex h-screen w-screen flex-col overflow-hidden bg-black">
       <div className="flex items-center justify-between gap-2 border-b border-[#2a2a2a] bg-[#050505] px-2 py-1 mono text-[11px]">
-        <div className="flex items-center gap-3">
+        <div className="flex min-w-0 items-center gap-3">
           <ScreenNav />
-          <span className="hidden uppercase tracking-[0.35em] text-neutral-400 sm:inline">Tracking Board</span>
+          <span className="hidden shrink-0 uppercase tracking-[0.35em] text-neutral-400 xl:inline">Tracking Board</span>
+          <BoardGroupFilter groups={groups} selected={shownGroups} onChange={setShownGroups} />
         </div>
         <button
           data-testid="board-fullscreen"
           onClick={goFullscreen}
-          className="flex items-center gap-1 border border-[#2a2a2a] px-2 py-1 uppercase tracking-widest text-neutral-300 hover:border-[#00f0ff] hover:text-[#00f0ff]"
+          className="flex shrink-0 items-center gap-1 border border-[#2a2a2a] px-2 py-1 uppercase tracking-widest text-neutral-300 hover:border-[#00f0ff] hover:text-[#00f0ff]"
         >
           <Maximize className="h-3 w-3" /> <span className="hidden sm:inline">Full screen</span>
         </button>
@@ -61,7 +70,7 @@ export default function TrackingBoard() {
 
       <div className="relative min-h-0 flex-1">
         <MapView
-          radios={radios}
+          radios={boardRadios}
           groups={groups}
           txActiveIds={txActiveIds}
           geofences={geofences}
@@ -74,7 +83,7 @@ export default function TrackingBoard() {
           <BoardClock radioCount={withPos.length} connected={live.connected} />
         </div>
         <div className="absolute bottom-10 left-3 z-[1000] w-[min(300px,calc(100vw-24px))]">
-          <TxNowList voiceActivity={voiceActivity} groups={groups} radios={radios} />
+          <TxNowList voiceActivity={shownVoice} groups={groups} radios={radios} />
         </div>
         {emergency && (
           <div className="absolute left-14 right-3 top-3 z-[1000] sm:right-auto">

@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { toast } from "sonner";
-import { Filter, Cpu, Users, Antenna, Bell, ShieldAlert, FlaskConical, ShieldCheck, BookOpen, Trash2, ScrollText } from "lucide-react";
+import { Filter, Cpu, Users, Antenna, Bell, ShieldAlert, FlaskConical, ShieldCheck, BookOpen, Trash2, ScrollText, Download } from "lucide-react";
 import { MapView } from "@/components/MapView";
 import { ScreenShell } from "@/components/ScreenShell";
 import { CollapsiblePanel } from "@/components/CollapsiblePanel";
@@ -14,6 +14,7 @@ import { ParserStatus } from "@/components/ParserStatus";
 import { GeofencePanel, AlertsPanel } from "@/components/GeofencePanel";
 import { Injector } from "@/components/Injector";
 import { PacketLog } from "@/components/PacketLog";
+import { UpdatePanel } from "@/components/UpdatePanel";
 import { useLiveData } from "@/hooks/useLiveData";
 import { useOverlays } from "@/hooks/useOverlays";
 import { clearAll } from "@/lib/api";
@@ -54,6 +55,9 @@ export default function AdminSetup() {
     <ScreenShell live={live} testid="admin-setup-page" title="Admin setup" actions={actions}>
       <div className="flex min-h-0 flex-1 flex-col lg:grid lg:grid-cols-[420px_minmax(0,1fr)]">
         <div data-testid="admin-panels" className="min-h-0 overflow-y-auto border-r border-[#2a2a2a] bg-[#0a0a0a] max-lg:max-h-[55vh]">
+          <CollapsiblePanel id="adm-update" title="Software update" icon={<Download className="h-3 w-3" />} testid="admin-panel-update">
+            <UpdatePanel />
+          </CollapsiblePanel>
           <OverlayManagerPanel editingOverlayId={editingOverlayId} onEditOverlay={setEditingOverlayId} currentMap={mapInstance} onOverlaysChanged={setOverlays} />
           <CollapsiblePanel id="adm-channels" title="Channels (timeslots)" icon={<Filter className="h-3 w-3" />} testid="admin-panel-channels">
             <ChannelFilter channels={channels} filter={channelFilter} onFilter={setChannelFilter} onChanged={live.refreshAll} embedded />

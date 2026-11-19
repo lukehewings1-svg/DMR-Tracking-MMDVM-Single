@@ -155,6 +155,10 @@ nano /opt/dmr-tracker/backend/.env  # change settings, then restart dmr-backend
 ```
 
 ### Updating after changes are saved to GitHub
+**Easiest:** Admin screen → *Software update* → *Update to latest*. The server
+pulls from GitHub, rebuilds the dashboard and restarts itself.
+
+Manual alternative:
 ```bash
 cd /root/dmr-tracker && git pull
 sudo DOMAIN=dmr.yourclub.org LE_EMAIL=you@example.com bash install.sh

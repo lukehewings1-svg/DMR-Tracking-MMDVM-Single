@@ -14,6 +14,20 @@ import { fetchPositions } from "@/lib/api";
 import { iconFor } from "@/lib/icons";
 import { BaseLayers } from "@/components/BaseLayers";
 import { RotateControl } from "@/components/RotateControl";
+import MarkerClusterGroup from "react-leaflet-cluster";
+import "react-leaflet-cluster/dist/assets/MarkerCluster.css";
+
+function clusterIcon(cluster) {
+  const kids = cluster.getAllChildMarkers();
+  const tx = kids.some((m) => m.options.tx);
+  const color = tx ? "#39ff14" : "#00f0ff";
+  const n = cluster.getChildCount();
+  return L.divIcon({
+    className: "",
+    iconSize: [36, 36],
+    html: `<div data-testid="radio-cluster" style="width:36px;height:36px;display:flex;align-items:center;justify-content:center;background:rgba(5,5,5,0.9);border:2px solid ${color};box-shadow:0 0 12px ${color}88;color:${color};font:600 13px 'JetBrains Mono',monospace;">${n}</div>`,
+  });
+}
 
 function buildIcon(radio, selected, groupColor, tx) {
   const label = radio.callsign || `ID ${radio.dmr_id}`;
@@ -195,6 +209,21 @@ export function MapView({
     ? visibleActive.filter((o) => o.id !== editingOverlay.id)
     : visibleActive;
 
+  const renderMarker = (r) => {
+    const g = r.group_id ? groupById.get(r.group_id) : null;
+    const color = g?.color || r.color || "#39ff14";
+    const tx = txSet.has(r.dmr_id);
+    return (
+      <Marker
+        key={`m-${r.dmr_id}-${r.icon || "Radio"}-${color}-${r.in_emergency ? "e" : "n"}-${tx ? "tx" : "rx"}`}
+        position={[r.last_lat, r.last_lon]}
+        icon={buildIcon(r, r.dmr_id === selectedId, color, tx)}
+        tx={tx}
+        eventHandlers={{ click: () => onSelect?.(r.dmr_id) }}
+      />
+    );
+  };
+
   return (
     <div className="relative h-full w-full" data-testid="map-view">
       <MapContainer
@@ -262,19 +291,16 @@ export function MapView({
             />
           );
         })}
-        {withPos.map((r) => {
-          const g = r.group_id ? groupById.get(r.group_id) : null;
-          const color = g?.color || r.color || "#39ff14";
-          const tx = txSet.has(r.dmr_id);
-          return (
-            <Marker
-              key={`m-${r.dmr_id}-${r.icon || "Radio"}-${color}-${r.in_emergency ? "e" : "n"}-${tx ? "tx" : "rx"}`}
-              position={[r.last_lat, r.last_lon]}
-              icon={buildIcon(r, r.dmr_id === selectedId, color, tx)}
-              eventHandlers={{ click: () => onSelect?.(r.dmr_id) }}
-            />
-          );
-        })}
+        <MarkerClusterGroup
+          chunkedLoading
+          maxClusterRadius={45}
+          disableClusteringAtZoom={16}
+          showCoverageOnHover={false}
+          iconCreateFunction={clusterIcon}
+        >
+          {withPos.filter((r) => !r.in_emergency).map(renderMarker)}
+        </MarkerClusterGroup>
+        {withPos.filter((r) => r.in_emergency).map(renderMarker)}
       </MapContainer>
       <div className="pointer-events-none absolute bottom-2 left-2 border border-[#2a2a2a] bg-black/70 px-2 py-1 mono text-[10px] text-neutral-400">
         {autoFit ? "AUTO-FIT · " : ""}{withPos.length} contact

@@ -7,7 +7,7 @@ sc query MongoDB | find "RUNNING" >nul || (
   net start MongoDB >nul 2>&1 || echo Could not start MongoDB. Open services.msc and start "MongoDB Server".
 )
 
-start "DMR Tracker - Backend" /D "%ROOT%backend" cmd /k "call venv\Scripts\activate.bat && uvicorn server:app --host 0.0.0.0 --port 8001"
+start "DMR Tracker - Backend" /D "%ROOT%backend" cmd /c run-backend.bat
 start "DMR Tracker - Frontend" /D "%ROOT%frontend" cmd /k "set BROWSER=none&& yarn start"
 
 echo Starting DMR Tracker, the browser will open when it is ready...

@@ -99,7 +99,7 @@ if [[ -d "$SCRIPT_DIR/backend" && -d "$SCRIPT_DIR/frontend" ]]; then
     # Running from inside the repo - copy it into INSTALL_DIR
     if [[ "$SCRIPT_DIR" != "$INSTALL_DIR" ]]; then
         mkdir -p "$INSTALL_DIR"
-        rsync -a --delete --exclude=".git" --exclude="node_modules" \
+        rsync -a --delete --exclude="node_modules" \
               --exclude="backend/.env" --exclude="frontend/.env" \
               --exclude="backend/.venv" --exclude="frontend/build" \
               "$SCRIPT_DIR"/ "$INSTALL_DIR"/

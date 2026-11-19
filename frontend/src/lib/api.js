@@ -177,3 +177,7 @@ export function apiErrorMessage(err) {
   if (detail && typeof detail === "object" && detail.msg) return detail.msg;
   return JSON.stringify(detail);
 }
+
+export const getUpdateStatus = () => api.get("/admin/update/status").then((r) => r.data);
+export const applyUpdate = () => api.post("/admin/update/apply").then((r) => r.data);
+export const getUpdateJob = () => api.get("/admin/update/job").then((r) => r.data);

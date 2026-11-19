@@ -20,6 +20,7 @@ from starlette.middleware.cors import CORSMiddleware
 
 import auth
 import storage
+import updater
 from auth import (
     LoginPayload,
     RegisterPayload,
@@ -701,7 +702,20 @@ async def update_radio(dmr_id: int, meta: RadioMeta, _: dict = Depends(get_curre
 async def delete_radio(dmr_id: int, _: dict = Depends(get_current_admin)):
     await db.radios.delete_one({"dmr_id": dmr_id})
     await db.positions.delete_many({"dmr_id": dmr_id})
+    await _clear_emergencies({"dmr_id": dmr_id})
     return {"ok": True}
+
+
+async def _clear_emergencies(query: dict) -> None:
+    active = await db.emergencies.find({**query, "status": "active"}, {"_id": 0, "id": 1, "dmr_id": 1}).to_list(1000)
+    if not active:
+        return
+    await db.emergencies.update_many(
+        {"id": {"$in": [e["id"] for e in active]}},
+        {"$set": {"status": "cleared", "cleared_at": _now_iso()}},
+    )
+    for e in active:
+        await _broadcast({"type": "emergency_cleared", "emergency_id": e["id"], "dmr_id": e["dmr_id"]})
 
 
 @api_router.delete("/radios")
@@ -709,6 +723,7 @@ async def clear_all(_: dict = Depends(get_current_admin)):
     await db.radios.delete_many({})
     await db.positions.delete_many({})
     await db.fence_state.delete_many({})
+    await _clear_emergencies({})
     packet_log.clear()
     await _broadcast({"type": "clear"})
     return {"ok": True}
@@ -963,6 +978,8 @@ async def clear_emergency(emergency_id: str, admin: dict = Depends(get_current_a
 @api_router.post("/emergencies/simulate")
 async def simulate_emergency(body: EmergencyInject, _: dict = Depends(get_current_user)):
     """Development helper: fire an emergency as if a radio pressed its panic button."""
+    if not await db.radios.find_one({"dmr_id": body.dmr_id}, {"_id": 1}):
+        raise HTTPException(status_code=404, detail="Unknown radio - inject a position for it first")
     await on_emergency(
         {
             "src_dmr_id": body.dmr_id,
@@ -1220,6 +1237,27 @@ async def overlays_delete_image(overlay_id: str, image_id: str, _: dict = Depend
     updated = await overlay_store.delete_image(overlay_id, image_id)
     await _broadcast({"type": "overlay_upserted", "overlay": updated})
     return updated
+
+
+# --------------------------------------------------------------------------- #
+# Self-update (git pull from the GitHub repo this copy was cloned from)
+# --------------------------------------------------------------------------- #
+@api_router.get("/admin/update/status")
+async def update_status(_: dict = Depends(get_current_admin)):
+    try:
+        return await asyncio.to_thread(updater.status)
+    except Exception as exc:  # noqa: BLE001
+        return {"available": False, "reason": f"Couldn't reach GitHub: {exc}"}
+
+
+@api_router.post("/admin/update/apply")
+async def update_apply(_: dict = Depends(get_current_admin)):
+    return updater.start_apply()
+
+
+@api_router.get("/admin/update/job")
+async def update_job(_: dict = Depends(get_current_admin)):
+    return updater.job()
 
 
 # --------------------------------------------------------------------------- #

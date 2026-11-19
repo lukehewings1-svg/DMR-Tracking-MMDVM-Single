@@ -153,7 +153,46 @@ MongoDB starts automatically as a Windows service.
 
 ---
 
-## 9. Troubleshooting
+## 9. Updating to the latest version
+
+### One-time: switch a ZIP install to a git install
+The in-app **Update** button needs the code to have been installed with
+`git clone`. If you originally downloaded a ZIP, do this once (your database,
+radios and settings are kept — MongoDB lives outside this folder):
+
+1. Install **Git for Windows** (git-scm.com, accept the defaults) and close any DMR Tracker windows.
+2. In PowerShell:
+   ```powershell
+   Rename-Item C:\dmr-tracker C:\dmr-tracker-old
+   git clone https://github.com/<you>/<repo>.git C:\dmr-tracker
+   ```
+   Private repo: a GitHub sign-in window pops up the first time — sign in and
+   Git remembers it.
+3. Move your settings and installed packages across:
+   ```powershell
+   Move-Item C:\dmr-tracker-old\backend\.env C:\dmr-tracker\backend\
+   Move-Item C:\dmr-tracker-old\frontend\.env C:\dmr-tracker\frontend\
+   Move-Item C:\dmr-tracker-old\backend\venv C:\dmr-tracker\backend\
+   Move-Item C:\dmr-tracker-old\frontend\node_modules C:\dmr-tracker\frontend\
+   ```
+4. Install anything new:
+   ```powershell
+   cd C:\dmr-tracker\backend; .\venv\Scripts\Activate.ps1; pip install -r requirements-windows.txt; deactivate
+   cd C:\dmr-tracker\frontend; yarn install
+   ```
+5. Double-click the **DMR Tracker** desktop icon. Once it all works you can delete `C:\dmr-tracker-old`.
+
+### From now on
+- **Admin screen → Software update → Check / Update to latest.** It downloads
+  the newest version from GitHub, installs any new packages, restarts the
+  backend by itself and reloads the page (about a minute).
+- If it says new dashboard packages were installed, close the two app windows
+  and start again from the desktop icon.
+- Manual alternative: `cd C:\dmr-tracker; git pull`, then restart from the icon.
+
+---
+
+## 10. Troubleshooting
 
 | Symptom | Fix |
 |---|---|
