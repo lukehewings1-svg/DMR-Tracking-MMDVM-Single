@@ -29,12 +29,25 @@ function clusterIcon(cluster) {
   });
 }
 
+// Same inputs -> same icon object, so re-renders don't call setIcon and
+// rebuild cluster DOM (which swallowed clicks on clusters).
+const iconCache = new Map();
 function buildIcon(radio, selected, groupColor, tx) {
-  const label = radio.callsign || `ID ${radio.dmr_id}`;
   const ageSec = radio.last_seen
     ? (Date.now() - new Date(radio.last_seen).getTime()) / 1000
     : 999;
   const stale = ageSec > 90;
+  const cacheKey = [radio.dmr_id, radio.callsign, radio.icon, radio.color, radio.in_emergency, groupColor, selected, tx, stale].join("|");
+  const hit = iconCache.get(cacheKey);
+  if (hit) return hit;
+  if (iconCache.size > 3000) iconCache.clear();
+  const icon = makeIcon(radio, selected, groupColor, tx, stale);
+  iconCache.set(cacheKey, icon);
+  return icon;
+}
+
+function makeIcon(radio, selected, groupColor, tx, stale) {
+  const label = radio.callsign || `ID ${radio.dmr_id}`;
   const distress = radio.in_emergency;
   const color =
     (distress && "#ff3b30") ||

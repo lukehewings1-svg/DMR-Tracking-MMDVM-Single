@@ -1,0 +1,44 @@
+{
+  "summary": "Tested the v15 features: board talkgroup filter, marker clustering, emergency clean-up, simulate 404 and the self-update panel, plus regressions. Backend: new test_v15_board_emergency_update.py 9/9 pass; regression test_v2_screens.py 6/6 (after fixing one outdated assertion) and test_v1_rollback.py 16/16 pass. Frontend: the board filter chips work (All is the default, single and multi-select, the No group chip, All clears the selection, the choice survives a reload via localStorage board:groupIds). The map and radio count follow the filter and the map re-fits. A radio in emergency whose group is filtered out still shows on the map with its SOS marker and gets the focus card (callsign, group, crew, position). Deleting that radio cleared the emergency live (card and banner gone, GET /api/emergencies = []). Clustering works on board, dispatch, admin and all-in-one ('8' badge for the London radios when zoomed out). Clicking a cluster zooms in (z8 to z15), at z15 it spiderfies, from z16 there are no clusters, and emergency radios stay out of clusters. Admin Software update panel shows update-unavailable with the 'No GitHub remote' reason; Check re-requests the status; no Update button. One apply run ended in state failed with an 'Update failed' log and the server did not restart. Non-admin gets 403 on all 3 update endpoints. Regressions pass: Geoman toolbar is top-right and a rectangle draws and saves; Dispatch keeps the user's zoom (z11) after a position update; the radio modal crew field is populated. DELETE /api/radios (Clear all) was NOT run, because the test-data rules forbid bulk deletes. It shares _clear_emergencies with the single delete, which was verified. Needs a manual check.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "DELETE /api/radios (clear all)", "issue": "Not executed (bulk delete forbidden by test-data rules). Code review: calls _clear_emergencies({}) and broadcasts emergency_cleared and clear. Looks correct, but needs a manual check."},
+      {"endpoint": "_clear_emergencies", "issue": "Emergencies cleared by deleting a radio or Clear all are not written to the shift log (clear_emergency logs via shift_log.log_emergency_cleared, this path doesn't). The audit trail has a gap."},
+      {"endpoint": "updater.start_apply", "issue": "Only guards state=='running'. A second POST while state=='restarting' starts another worker. Low risk."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "TrackingBoard cluster click (first click)", "issue": "The first click on a cluster after the board loads does nothing. The second click works. If the sound is armed with a key press first, a single click works, which confirms the cause. The pointerdown in useSoundArmed calls setArmed, the board re-renders, and MapView builds new divIcons (buildIcon runs every render). The markers' icons change, the cluster group refreshes, and the cluster DOM node is replaced between mousedown and click. The same re-render on live radio updates can make cluster clicks flaky on every map. Fix: memoize the icons per radio state (useMemo or a cache keyed by the marker key) so a re-render without changes does not call setIcon.", "selector": "[data-testid=radio-cluster]", "priority": "MEDIUM"},
+      {"component": "BoardGroupFilter stale ids", "issue": "If localStorage board:groupIds holds a group id that no longer exists (group deleted), the board shows 0 radios and no chip is active, not even All. Reproduced with ['deleted-group-id']. Fix: drop selected ids that aren't in groups (keep __none__) before filtering, or fall back to All.", "selector": "[data-testid=board-group-filter]", "priority": "LOW"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Tracking board", "issues": ["board-radio-count leaves out emergency radios that are only shown because of the override (2 markers visible, '1 radio' shown)", "The EMERGENCY toast stays after the radio is deleted and its emergency is cleared", "Inactive chips are neutral-500 on black, which is low contrast for a wall board", "At 390px the chip row scrolls sideways with no visual hint (filter scrollWidth 436 vs 199 visible)"]},
+      {"screen": "Voice filter", "issues": ["When only 'No group' is selected, shownTgs is empty, so every TX-now entry is hidden, including voice on talkgroups that have no group"]}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/test_v15_board_emergency_update.py", "/app/backend/tests/ui_seed_v15.py", "/app/backend/tests/test_v2_screens.py", "/app/test_reports/pytest/pytest_v15.xml"],
+  "action_items": [
+    "MEDIUM: Memoize marker divIcons in MapView so re-renders (sound arm, live updates) don't replace the cluster DOM. The first cluster click on /board is currently lost.",
+    "LOW: Sanitize board:groupIds against the current groups (fall back to All when none match).",
+    "LOW: Log radio-delete and Clear-all emergency clears to the shift log.",
+    "LOW: Include emergency-override radios in board-radio-count, or label them separately.",
+    "Manual check: Clear all (DELETE /api/radios) clears active emergencies and the banner on other screens."
+  ],
+  "critical_code_review_comments": [
+    "MapView.buildIcon builds a new L.divIcon on every render for every marker. This costs CPU and causes the cluster click bug.",
+    "TrackingBoard.shownVoice filters by talkgroup ids of the selected groups only, so UNASSIGNED never matches any voice traffic.",
+    "updater._apply_worker runs pip only when requirements-windows.txt changed; on Linux installs requirements.txt changes are ignored. Check this is intended.",
+    "The JWT goes in the WebSocket query string and is printed in the uvicorn access logs (existing behaviour)."
+  ],
+  "updated_files": ["/app/backend/tests/test_v15_board_emergency_update.py", "/app/backend/tests/ui_seed_v15.py", "/app/backend/tests/test_v2_screens.py (removed outdated assertion that MEDIC-1 has an active emergency)"],
+  "success_rate": {"backend": "100% (31/31)", "frontend": "~92% (first cluster click on the board is lost; stale filter ids give an empty board)"},
+  "test_credentials": "admin@dmrtracker.app / admin123 works. Temporary approved non-admin test_v15_xxxx@example.com was created by the pytest fixture and deleted.",
+  "seed_data_creation": "Temporary TEST radios 2359950-2359962 (TEST_GRP, TEST_EMGDEL, TEST_E*, TEST_FIRE, TEST_MED, TEST_NOGRP) and overlay TEST_overlay_v15 were all deleted by id. Cleared emergency history records for the TEST radios remain (no delete endpoint). The 6 seeded radios (UNIT-11/12/13, FIRE-2, OPS-3, MEDIC-1) were not touched and are still present. No active emergencies. Re-seeding wasn't needed because Clear all wasn't run.",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Run: cd /app/backend && REACT_APP_BACKEND_URL=<url> pytest tests/test_v15_board_emergency_update.py tests/test_v2_screens.py tests/test_v1_rollback.py -n0. UI data helper: python tests/ui_seed_v15.py setup|emg|clearemg|teardown (TEST radios in Fire/Medical/no group near London). Get the map zoom from the '.leaflet-tile-loaded' src /tile/{z}/. Cluster click repro: open /board fresh and mouse-click [data-testid=radio-cluster] once; nothing happens. Press a key first and one click works. The backend hot-reloads when files under /app/backend change, which resets the updater job to idle.",
+  "rca of the issue": "Lost first cluster click: useSoundArmed's pointerdown runs setArmed, TrackingBoard re-renders, and MapView renders each Marker with a new buildIcon() object. react-leaflet calls setIcon, Leaflet.markercluster refreshes the parent cluster icons, and the cluster element under the cursor is replaced before 'click' fires, so the click never reaches the new element. Mitigation: cache icons keyed by (dmr_id, icon, color, emergency, tx, stale, selected)."
+}

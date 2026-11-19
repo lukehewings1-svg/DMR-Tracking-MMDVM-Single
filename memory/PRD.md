@@ -89,3 +89,11 @@ Iteration 1: 14/14 backend tests pass, all frontend flows validated. Iteration 2
 - Geoman toolbar moved to top-right (rotate control was covering it). Dispatch map only refits when radios join/leave.
 - Windows laptop guide, desktop launcher, hosted VPS guide/installer, DMR818 gateway wiring guide added.
 - Backlog: DMR818 Pi gateway software (dispatcher voice TX/RX), label clustering at low zoom, Sepura LIP, Motorola SMS.
+
+## 2026-11 — Board filter, clustering, emergency clean-up, self-update
+- Tracking Board talkgroup filter (All / pick several / No group), saved per browser (localStorage board:groupIds); emergencies always shown.
+- Marker clustering on all maps (react-leaflet-cluster), off from z16, emergency radios never clustered; icon cache so clicks aren't lost on re-render.
+- Clear all / delete radio clear active emergencies (+ shift log entry); simulate emergency on unknown radio → 404.
+- Admin → Software update: git fetch/pull from origin, pip/yarn install when needed, yarn build if a build exists, then exit code 3 → restart (backend/run-backend.bat loop on Windows, systemd on VPS). install.sh now keeps .git in /opt.
+- WINDOWS_SETUP.md §9: switching a ZIP install to git clone + updating.
+- Open findings: updater allows a 2nd apply while "restarting"; board radio count excludes override-shown emergency radios; emergency toast lingers after clean-up; low-contrast inactive chips; TX list hides talkgroups with no group when only "No group" selected.

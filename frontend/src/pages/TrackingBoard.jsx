@@ -6,7 +6,7 @@ import { EmergencyBanner } from "@/components/EmergencyBanner";
 import { EmergencyFocusCard } from "@/components/EmergencyFocusCard";
 import { TxNowList } from "@/components/TxNowList";
 import { BoardClock } from "@/components/BoardClock";
-import { BoardGroupFilter, filterByGroups } from "@/components/BoardGroupFilter";
+import { BoardGroupFilter, filterByGroups, UNASSIGNED } from "@/components/BoardGroupFilter";
 import { usePersistedState } from "@/components/CollapsiblePanel";
 import { useLiveData } from "@/hooks/useLiveData";
 import { useOverlays } from "@/hooks/useOverlays";
@@ -26,13 +26,27 @@ function useSoundArmed() {
   return armed;
 }
 
+// Own component so arming the sound doesn't re-render the map mid-click.
+function SoundPrompt() {
+  const armed = useSoundArmed();
+  if (armed) return null;
+  return (
+    <div data-testid="board-sound-prompt" className="pointer-events-none absolute bottom-10 right-3 z-[1000] flex items-center gap-2 border border-[#ffb800] bg-black/85 px-3 py-2 mono text-[11px] text-[#ffb800]">
+      <Volume2 className="h-4 w-4" /> Click anywhere once to enable the emergency siren
+    </div>
+  );
+}
+
 export default function TrackingBoard() {
   const live = useLiveData();
   const { radios, groups, emergencies, voiceActivity, geofences } = live;
   const [overlays] = useOverlays(live.lastOverlayEvent);
   const [pickedId, setPickedId] = useState(null);
-  const soundArmed = useSoundArmed();
-  const [shownGroups, setShownGroups] = usePersistedState("board:groupIds", []);
+  const [savedGroups, setShownGroups] = usePersistedState("board:groupIds", []);
+  // Ignore saved ids for groups that have since been deleted.
+  const shownGroups = groups.length
+    ? savedGroups.filter((id) => id === UNASSIGNED || groups.some((g) => g.id === id))
+    : [];
   const shownRadios = filterByGroups(radios, shownGroups);
   // Emergencies always stay on the board, whatever talkgroups are shown.
   const boardRadios = [...shownRadios, ...radios.filter((r) => r.in_emergency && !shownRadios.includes(r))];
@@ -90,11 +104,7 @@ export default function TrackingBoard() {
             <EmergencyFocusCard emergency={emergency} radio={emgRadio} group={emgGroup} others={emergencies} onPick={setPickedId} />
           </div>
         )}
-        {!soundArmed && (
-          <div data-testid="board-sound-prompt" className="pointer-events-none absolute bottom-10 right-3 z-[1000] flex items-center gap-2 border border-[#ffb800] bg-black/85 px-3 py-2 mono text-[11px] text-[#ffb800]">
-            <Volume2 className="h-4 w-4" /> Click anywhere once to enable the emergency siren
-          </div>
-        )}
+        <SoundPrompt />
       </div>
     </div>
   );

@@ -74,8 +74,7 @@ class TestEmergency:
             assert r.status_code == 200
             assert not any(e["dmr_id"] == dmr for e in requests.get(f"{API}/emergencies", headers=H, timeout=15).json())
             assert _radio(H, dmr)["in_emergency"] is False
-            # seeded MEDIC-1 emergency untouched
-            assert any(e["dmr_id"] == 2350001 for e in requests.get(f"{API}/emergencies", headers=H, timeout=15).json())
+            # (v15: seed no longer has an active MEDIC-1 emergency, so no assertion on it)
         finally:
             requests.delete(f"{API}/radios/{dmr}", headers=H, timeout=15)
 

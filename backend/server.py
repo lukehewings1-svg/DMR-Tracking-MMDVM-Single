@@ -699,14 +699,14 @@ async def update_radio(dmr_id: int, meta: RadioMeta, _: dict = Depends(get_curre
 
 
 @api_router.delete("/radios/{dmr_id}")
-async def delete_radio(dmr_id: int, _: dict = Depends(get_current_admin)):
+async def delete_radio(dmr_id: int, admin: dict = Depends(get_current_admin)):
     await db.radios.delete_one({"dmr_id": dmr_id})
     await db.positions.delete_many({"dmr_id": dmr_id})
-    await _clear_emergencies({"dmr_id": dmr_id})
+    await _clear_emergencies({"dmr_id": dmr_id}, f"{admin['email']} (radio deleted)")
     return {"ok": True}
 
 
-async def _clear_emergencies(query: dict) -> None:
+async def _clear_emergencies(query: dict, cleared_by: str) -> None:
     active = await db.emergencies.find({**query, "status": "active"}, {"_id": 0, "id": 1, "dmr_id": 1}).to_list(1000)
     if not active:
         return
@@ -716,14 +716,16 @@ async def _clear_emergencies(query: dict) -> None:
     )
     for e in active:
         await _broadcast({"type": "emergency_cleared", "emergency_id": e["id"], "dmr_id": e["dmr_id"]})
+        if shift_log:
+            await shift_log.log_emergency_cleared(e["dmr_id"], cleared_by)
 
 
 @api_router.delete("/radios")
-async def clear_all(_: dict = Depends(get_current_admin)):
+async def clear_all(admin: dict = Depends(get_current_admin)):
     await db.radios.delete_many({})
     await db.positions.delete_many({})
     await db.fence_state.delete_many({})
-    await _clear_emergencies({})
+    await _clear_emergencies({}, f"{admin['email']} (clear all)")
     packet_log.clear()
     await _broadcast({"type": "clear"})
     return {"ok": True}
