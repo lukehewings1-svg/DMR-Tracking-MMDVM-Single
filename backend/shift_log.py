@@ -18,6 +18,7 @@ EVENT_TYPES = (
     "position",
     "emergency",
     "emergency_cleared",
+    "emergency_ack",
     "message_in",
     "message_out",
     "voice",

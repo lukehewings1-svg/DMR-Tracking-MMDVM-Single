@@ -97,3 +97,10 @@ Iteration 1: 14/14 backend tests pass, all frontend flows validated. Iteration 2
 - Admin → Software update: git fetch/pull from origin, pip/yarn install when needed, yarn build if a build exists, then exit code 3 → restart (backend/run-backend.bat loop on Windows, systemd on VPS). install.sh now keeps .git in /opt.
 - WINDOWS_SETUP.md §9: switching a ZIP install to git clone + updating.
 - Open findings: updater allows a 2nd apply while "restarting"; board radio count excludes override-shown emergency radios; emergency toast lingers after clean-up; low-contrast inactive chips; TX list hides talkgroups with no group when only "No group" selected.
+
+## 2026-11 — Emergency acknowledge + live dispatcher voice
+- POST /api/emergencies/{id}/ack (any approved user) → acknowledged_at/by, WS emergency_ack, shift-log emergency_ack; clear stays admin-only. Siren repeats every 5 s until all active emergencies are acknowledged. ACK on banner + board focus card.
+- Voice hub (voice_hub.py): dispatcher WS /api/voice/ws (PCM16 8 kHz 20 ms), floor control, ACL, 90 s TX limit. Routes: AMBE dongle (ambe_dongle.py DV3000 rate 34 + dmr_voice.py DMR framing via dmr_utils3, injects DMRD into all MMDVMs, decodes RX) preferred, else DMR818 gateway (WS /api/gateway/ws?key=, admin CRUD /api/gateways). Gateway alarms raise emergencies.
+- Pi software: /app/gateway (dmr818_gateway.py, install-gateway.sh, gateway.example.ini). Docs: VOICE_SETUP.md.
+- UI: Dispatch VoicePanel (talkgroup or one radio, hold button / space bar, listen + volume, RX/TX line), modal PTT uses same client, Admin Voice panel (dongle status, gateways + one-time key).
+- Not hardware-tested (dongle, DMR818). Open findings: ACL computed at voice connect; voice_status RX info visible to restricted dispatchers; gateway RX ignored when dongle detected but no repeaters; GatewaysPanel errors unhandled; DELETE unknown gateway 200; playSiren AudioContext pile-up; PTT not disabled during RX; <span> in <option> console warning.

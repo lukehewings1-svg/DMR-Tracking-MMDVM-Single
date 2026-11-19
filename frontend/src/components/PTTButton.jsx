@@ -73,7 +73,11 @@ export function PTTButton({ callType, targetId, groupId, label, callerCallsign, 
       data-testid={testid}
       disabled={!targetId || !!busyBy}
       onPointerDown={(e) => {
-        e.currentTarget.setPointerCapture?.(e.pointerId);
+        try {
+          e.currentTarget.setPointerCapture(e.pointerId);
+        } catch {
+          /* synthetic or touch pointer - fine without capture */
+        }
         press();
       }}
       onPointerUp={release}

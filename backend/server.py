@@ -1345,6 +1345,7 @@ async def _ws_user(websocket: WebSocket) -> Optional[dict]:
 async def voice_ws(websocket: WebSocket):
     user = await _ws_user(websocket)
     if not user:
+        await websocket.accept()
         await websocket.close(code=4401)
         return
     allowed = user.get("allowed_group_ids") or []
@@ -1386,10 +1387,10 @@ async def voice_ws(websocket: WebSocket):
 async def gateway_ws(websocket: WebSocket):
     key = websocket.query_params.get("key") or websocket.headers.get("x-gateway-key") or ""
     gw = await db.gateways.find_one({"key_hash": _key_hash(key)}, {"_id": 0}) if key else None
+    await websocket.accept()
     if not gw:
         await websocket.close(code=4401)
         return
-    await websocket.accept()
     await db.gateways.update_one({"id": gw["id"]}, {"$set": {"last_seen": _now_iso()}})
     await voice_hub.add_gateway(gw["id"], gw["name"], websocket)
     try:

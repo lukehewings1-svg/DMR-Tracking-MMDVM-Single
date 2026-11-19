@@ -20,6 +20,7 @@ const EVENT_LABEL = {
   position: { label: "POS", color: "#39ff14", Icon: MapPin },
   emergency: { label: "EMERG", color: "#ff3b30", Icon: AlertOctagon },
   emergency_cleared: { label: "CLEAR", color: "#ffb800", Icon: AlertOctagon },
+  emergency_ack: { label: "ACK", color: "#ffb800", Icon: AlertOctagon },
   message_in: { label: "MSG⇐", color: "#00f0ff", Icon: MessageSquare },
   message_out: { label: "MSG⇒", color: "#c084fc", Icon: MessageSquare },
   voice: { label: "VOICE", color: "#39ff14", Icon: Radio },
