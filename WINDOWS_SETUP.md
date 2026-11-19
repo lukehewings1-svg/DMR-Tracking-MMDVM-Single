@@ -131,6 +131,18 @@ restart `yarn start`, then browse to `http://192.168.1.50:3000` from phones/tabl
 
 ## 8. Daily start-up
 
+### Desktop shortcut (one-time)
+From `C:\dmr-tracker` in PowerShell:
+```powershell
+powershell -ExecutionPolicy Bypass -File .\create-desktop-shortcut.ps1
+```
+A **DMR Tracker** icon appears on the Desktop. Double-click it to start
+MongoDB (if stopped), the backend and the frontend, then the browser opens at
+http://localhost:3000 once the app is ready (first start ≈ 30–60 s).
+To stop the app, close the two windows titled *DMR Tracker - Backend* and
+*DMR Tracker - Frontend*.
+
+### Manual start
 ```powershell
 # Window 1
 cd C:\dmr-tracker\backend; .\venv\Scripts\Activate.ps1; uvicorn server:app --host 0.0.0.0 --port 8001
