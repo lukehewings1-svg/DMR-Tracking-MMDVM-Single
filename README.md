@@ -24,6 +24,9 @@ Quick links:
 
 ---
 
+> **Guides:** Windows laptop → [`WINDOWS_SETUP.md`](./WINDOWS_SETUP.md) ·
+> Hosted cloud server (VPS) → [`HOSTED_SETUP.md`](./HOSTED_SETUP.md)
+
 ## 0. Quick install on a Raspberry Pi (one command)
 
 If you just want to spin up a test node, use the bundled installer. It works on

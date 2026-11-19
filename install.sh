@@ -28,6 +28,10 @@
 #     HB_BIND_PORT     default 62031
 #     SERVER_DMR_ID    default 9990001
 #     REPO_URL         if set + INSTALL_DIR is empty, git clones from here
+#     DOMAIN           optional public hostname (e.g. dmr.example.com) - enables HTTPS via Let's Encrypt
+#     LE_EMAIL         email for Let's Encrypt expiry notices (required with DOMAIN)
+#     PUBLIC_HOST      host/IP the browser uses when no DOMAIN (default: first IP of this machine)
+#     EMERGENT_LLM_KEY optional - enables overlay image uploads (object storage)
 #
 set -euo pipefail
 
@@ -73,8 +77,17 @@ HB_BIND_PORT="${HB_BIND_PORT:-62031}"
 SERVER_DMR_ID="${SERVER_DMR_ID:-9990001}"
 
 # Detect the Pi's primary LAN IP so the frontend can talk to itself.
-LAN_IP=$(hostname -I 2>/dev/null | awk '{print $1}')
+LAN_IP="${PUBLIC_HOST:-$(hostname -I 2>/dev/null | awk '{print $1}')}"
 [[ -n "$LAN_IP" ]] || LAN_IP="127.0.0.1"
+DOMAIN="${DOMAIN:-}"
+LE_EMAIL="${LE_EMAIL:-}"
+EMERGENT_LLM_KEY="${EMERGENT_LLM_KEY:-}"
+if [[ -n "$DOMAIN" ]]; then
+    [[ -n "$LE_EMAIL" ]] || die "LE_EMAIL is required when DOMAIN is set."
+    PUBLIC_URL="https://${DOMAIN}"
+else
+    PUBLIC_URL="http://${LAN_IP}"
+fi
 
 # --------------------------------------------------------------------------- #
 # Locate the source tree
@@ -87,6 +100,7 @@ if [[ -d "$SCRIPT_DIR/backend" && -d "$SCRIPT_DIR/frontend" ]]; then
     if [[ "$SCRIPT_DIR" != "$INSTALL_DIR" ]]; then
         mkdir -p "$INSTALL_DIR"
         rsync -a --delete --exclude=".git" --exclude="node_modules" \
+              --exclude="backend/.env" --exclude="frontend/.env" \
               --exclude="backend/.venv" --exclude="frontend/build" \
               "$SCRIPT_DIR"/ "$INSTALL_DIR"/
     fi
@@ -161,6 +175,9 @@ done
 step "Writing backend/.env and frontend/.env…"
 JWT_SECRET=$(python3 -c "import secrets; print(secrets.token_hex(32))")
 
+if [[ -f "$INSTALL_DIR/backend/.env" && -z "${RESET_ENV:-}" ]]; then
+    c_ylw "Keeping existing backend/.env (set RESET_ENV=1 to regenerate)."
+else
 cat > "$INSTALL_DIR/backend/.env" <<EOF
 MONGO_URL="mongodb://127.0.0.1:27017"
 DB_NAME="dmr_tracker"
@@ -175,14 +192,15 @@ VOICE_SLOT="2"
 DATA_SLOT="1"
 SERVER_DMR_ID="${SERVER_DMR_ID}"
 AMBE_DEVICE_PATH=""
+EMERGENT_LLM_KEY="${EMERGENT_LLM_KEY}"
 EOF
+fi
 
 # Frontend needs to know how to reach the backend. Since nginx sits in front on
 # port 80 and proxies /api to the backend on 127.0.0.1:8001, the browser can
 # just use the same origin.
 cat > "$INSTALL_DIR/frontend/.env" <<EOF
-REACT_APP_BACKEND_URL=http://${LAN_IP}
-WDS_SOCKET_PORT=443
+REACT_APP_BACKEND_URL=${PUBLIC_URL}
 EOF
 
 # --------------------------------------------------------------------------- #
@@ -194,7 +212,8 @@ python3 -m venv .venv
 # shellcheck disable=SC1091
 source .venv/bin/activate
 pip install --upgrade pip wheel
-pip install -r requirements.txt
+# Minimal runtime deps (requirements.txt also holds dev/cloud-only packages)
+pip install -r requirements-windows.txt
 deactivate
 
 # --------------------------------------------------------------------------- #
@@ -219,7 +238,7 @@ PY
 fi
 
 yarn install --frozen-lockfile || yarn install
-CI=1 yarn build
+yarn build
 
 # --------------------------------------------------------------------------- #
 # systemd unit for the backend
@@ -254,10 +273,16 @@ systemctl enable --now dmr-backend.service
 step "Configuring nginx…"
 cat > /etc/nginx/sites-available/dmr-tracker <<EOF
 # DMR Tracker
+map \$http_upgrade \$connection_upgrade {
+    default upgrade;
+    ''      close;
+}
+
 server {
     listen 80 default_server;
     listen [::]:80 default_server;
-    server_name _;
+    server_name ${DOMAIN:-_};
+    client_max_body_size 25m;
 
     root ${INSTALL_DIR}/frontend/build;
     index index.html;
@@ -283,6 +308,10 @@ server {
         proxy_set_header X-Real-IP \$remote_addr;
         proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection \$connection_upgrade;
+        proxy_read_timeout 3600s;
     }
 
     # Frontend SPA - fall through to index.html for client-side routes
@@ -298,16 +327,25 @@ nginx -t
 systemctl enable --now nginx
 systemctl reload nginx
 
+if [[ -n "$DOMAIN" ]]; then
+    step "Requesting HTTPS certificate for ${DOMAIN}…"
+    apt-get install -y certbot python3-certbot-nginx
+    ufw allow 443/tcp || true
+    certbot --nginx -d "$DOMAIN" --non-interactive --agree-tos -m "$LE_EMAIL" --redirect \
+        || c_ylw "Certificate request failed - check the DNS A record points at this server, then run: certbot --nginx -d $DOMAIN"
+fi
+
 # --------------------------------------------------------------------------- #
 # Firewall
 # --------------------------------------------------------------------------- #
 step "Opening firewall ports (80/tcp dashboard, ${HB_BIND_PORT}/udp HB master)…"
+ufw allow 22/tcp        || true    # keep SSH open
+ufw allow 80/tcp        || true
+ufw allow 443/tcp       || true
+ufw allow "${HB_BIND_PORT}/udp" || true
 if ufw status | grep -q inactive; then
     yes | ufw enable || true
 fi
-ufw allow 22/tcp        || true    # keep SSH open
-ufw allow 80/tcp        || true
-ufw allow "${HB_BIND_PORT}/udp" || true
 
 # --------------------------------------------------------------------------- #
 # Wait for backend + verify
@@ -329,7 +367,7 @@ $(c_grn "===============================================================")
 $(c_grn " DMR Tracker install complete")
 $(c_grn "===============================================================")
 
-  Dashboard URL:    $(c_blu "http://${LAN_IP}/")
+  Dashboard URL:    $(c_blu "${PUBLIC_URL}/")
   Admin login:      ${ADMIN_EMAIL}
   Admin password:   $(c_ylw "${ADMIN_PASSWORD}")   ← change from Users page after login
   HB Master UDP:    0.0.0.0:${HB_BIND_PORT}     (point every MMDVM here)
@@ -343,13 +381,13 @@ $(c_grn "===============================================================")
   Logs (nginx):     journalctl -u nginx -f
 
   Point each MMDVMHost DMR-Network at:
-     Address = ${LAN_IP}
+     Address = ${DOMAIN:-$LAN_IP}
      Port    = ${HB_BIND_PORT}
      Password= ${HB_PASSWORD}
      Local   = (any free UDP port on the MMDVM)
 
   Full setup guide (per-brand radio programming + AMBE dongle + FAQ):
-     http://${LAN_IP}/SETUP.md
+     ${PUBLIC_URL}/SETUP.md
 
 $(c_grn "===============================================================")
 EOF
