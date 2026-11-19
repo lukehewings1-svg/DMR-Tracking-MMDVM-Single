@@ -25,7 +25,8 @@ Quick links:
 ---
 
 > **Guides:** Windows laptop → [`WINDOWS_SETUP.md`](./WINDOWS_SETUP.md) ·
-> Hosted cloud server (VPS) → [`HOSTED_SETUP.md`](./HOSTED_SETUP.md)
+> Hosted cloud server (VPS) → [`HOSTED_SETUP.md`](./HOSTED_SETUP.md) ·
+> DMR818 dispatcher voice gateway → [`DMR818_GATEWAY_WIRING.md`](./DMR818_GATEWAY_WIRING.md)
 
 ## 0. Quick install on a Raspberry Pi (one command)
 
