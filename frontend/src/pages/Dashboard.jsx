@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { TopBar } from "@/components/TopBar";
+import { ScreenNav } from "@/components/ScreenNav";
 import { MapView } from "@/components/MapView";
 import { Roster } from "@/components/Roster";
 import { PacketLog } from "@/components/PacketLog";
@@ -675,6 +676,7 @@ export default function Dashboard() {
       {/* Session strip */}
       <div className="flex items-center justify-between gap-2 border-b border-[#2a2a2a] bg-[#0a0a0a] px-2 py-1.5 mono text-[11px] md:px-4">
         <div className="flex min-w-0 items-center gap-2 sm:gap-3">
+          <ScreenNav />
           <span className="hidden text-neutral-500 md:inline">OPERATOR</span>
           <span className="truncate text-neutral-100">{user?.email}</span>
           <span

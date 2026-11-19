@@ -58,6 +58,7 @@ export function RadioDetailModal({
   const [icon, setIcon] = useState("Radio");
   const [color, setColor] = useState("#39ff14");
   const [notes, setNotes] = useState("");
+  const [crew, setCrew] = useState("");
   const [groupId, setGroupId] = useState("");
   const [loading, setLoading] = useState(true);
   const [voiceLoading, setVoiceLoading] = useState(false);
@@ -69,6 +70,7 @@ export function RadioDetailModal({
     setIcon(radio?.icon || "Radio");
     setColor(radio?.color || "#39ff14");
     setNotes(radio?.notes || "");
+    setCrew(radio?.crew || "");
     setGroupId(radio?.group_id || "");
     setTab("info");
     setLoading(true);
@@ -126,6 +128,7 @@ export function RadioDetailModal({
       icon,
       color,
       notes: notes || null,
+      crew: crew || null,
       group_id: groupId || null,
     });
     toast.success("Radio updated");
@@ -304,6 +307,16 @@ export function RadioDetailModal({
                     ))}
                   </div>
                 </div>
+                <Field label="Crew / unit details">
+                  <textarea
+                    data-testid="detail-crew"
+                    value={crew}
+                    onChange={(e) => setCrew(e.target.value)}
+                    rows={2}
+                    placeholder="e.g. Unit 3 · J. Smith (lead), A. Patel · Medic"
+                    className="w-full border border-[#2a2a2a] bg-black px-3 py-2 mono text-sm text-neutral-100 outline-none focus:border-[#00f0ff]"
+                  />
+                </Field>
                 <Field label="Notes">
                   <textarea
                     data-testid="detail-notes"

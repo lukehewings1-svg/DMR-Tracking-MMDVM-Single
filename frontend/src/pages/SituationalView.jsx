@@ -276,7 +276,7 @@ export default function SituationalView() {
           touchRotate
           shiftKeyRotate
         >
-          <BaseLayers defaultLayer="Dark" />
+          <BaseLayers defaultLayer="Hybrid" />
           <RotateControl />
           <FitToRadios radios={withPos} />
           {overlaysVisible && <OverlayLayer overlays={overlays} />}

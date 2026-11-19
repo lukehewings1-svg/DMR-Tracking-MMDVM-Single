@@ -93,6 +93,30 @@ function FitToRadios({ radios }) {
   return null;
 }
 
+function AutoFit({ radios, enabled }) {
+  const map = useMap();
+  const key = radios.map((r) => `${r.dmr_id}:${r.last_lat.toFixed(5)},${r.last_lon.toFixed(5)}`).join("|");
+  useEffect(() => {
+    if (!enabled || radios.length === 0) return;
+    const pts = radios.map((r) => [r.last_lat, r.last_lon]);
+    if (pts.length === 1) map.setView(pts[0], 16, { animate: false });
+    else map.fitBounds(pts, { padding: [60, 60], maxZoom: 17, animate: false });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key, enabled, map]);
+  return null;
+}
+
+function FocusOn({ target, zoom }) {
+  const map = useMap();
+  const key = target ? target.join(",") : "";
+  useEffect(() => {
+    if (!target) return;
+    map.setView(target, zoom, { animate: false });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key, zoom, map]);
+  return null;
+}
+
 function PanTo({ target }) {
   const map = useMap();
   useEffect(() => {
@@ -144,6 +168,9 @@ export function MapView({
   canEditOverlays = false,
   onMapReady,
   txActiveIds,
+  autoFit = false,
+  focusTarget = null,
+  showTrails = true,
 }) {
   const groupById = new Map(groups.map((g) => [g.id, g]));
   const txSet = txActiveIds || new Set();
@@ -180,10 +207,16 @@ export function MapView({
         shiftKeyRotate
       >
         <MapReadyEmitter onMapReady={onMapReady} />
-        <BaseLayers defaultLayer="Dark" />
+        <BaseLayers defaultLayer="Hybrid" />
         <RotateControl />
-        <FitToRadios radios={withPos} />
-        <PanTo target={panTarget} />
+        {focusTarget ? (
+          <FocusOn target={focusTarget} zoom={17} />
+        ) : autoFit ? (
+          <AutoFit radios={withPos} enabled />
+        ) : (
+          <FitToRadios radios={withPos} />
+        )}
+        {!autoFit && !focusTarget && <PanTo target={panTarget} />}
 
         {/* Event overlays (shapes + images) */}
         <OverlayLayerBoundsSync overlays={[...overlaysForLayer, editingOverlay].filter(Boolean)} />
@@ -214,7 +247,7 @@ export function MapView({
           />
         ))}
 
-        {withPos.map((r) => {
+        {showTrails && withPos.map((r) => {
           const g = r.group_id ? groupById.get(r.group_id) : null;
           const color = g?.color || r.color || "#39ff14";
           return (
@@ -240,7 +273,7 @@ export function MapView({
         })}
       </MapContainer>
       <div className="pointer-events-none absolute bottom-2 left-2 border border-[#2a2a2a] bg-black/70 px-2 py-1 mono text-[10px] text-neutral-400">
-        OSM · CARTO DARK · {withPos.length} contact
+        {autoFit ? "AUTO-FIT · " : ""}{withPos.length} contact
         {withPos.length === 1 ? "" : "s"}
         {geofences.length > 0 ? ` · ${geofences.length} fence${geofences.length === 1 ? "" : "s"}` : ""}
         {visibleActive.length > 0

@@ -114,6 +114,7 @@ class RadioMeta(BaseModel):
     icon: Optional[str] = None
     color: Optional[str] = None
     notes: Optional[str] = None
+    crew: Optional[str] = Field(default=None, max_length=500)
     group_id: Optional[str] = None
 
 
@@ -688,7 +689,7 @@ async def radio_positions(dmr_id: int, limit: int = 200, _: dict = Depends(get_c
 
 @api_router.patch("/radios/{dmr_id}")
 async def update_radio(dmr_id: int, meta: RadioMeta, _: dict = Depends(get_current_user)):
-    updates = {k: v for k, v in meta.model_dump(exclude_unset=True).items() if v is not None or k == "group_id"}
+    updates = {k: v for k, v in meta.model_dump(exclude_unset=True).items() if v is not None or k in ("group_id", "notes", "crew")}
     if not updates:
         return {"ok": True}
     await db.radios.update_one({"dmr_id": dmr_id}, {"$set": updates}, upsert=False)

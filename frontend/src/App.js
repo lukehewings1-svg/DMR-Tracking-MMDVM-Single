@@ -7,6 +7,9 @@ import Register from "@/pages/Register";
 import AdminUsers from "@/pages/AdminUsers";
 import SetupGuide from "@/pages/SetupGuide";
 import SituationalView from "@/pages/SituationalView";
+import TrackingBoard from "@/pages/TrackingBoard";
+import DispatchPage from "@/pages/DispatchPage";
+import AdminSetup from "@/pages/AdminSetup";
 import { AuthProvider } from "@/context/AuthContext";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { Toaster } from "@/components/ui/sonner";
@@ -27,6 +30,30 @@ function App() {
               element={
                 <ProtectedRoute>
                   <Dashboard />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/board"
+              element={
+                <ProtectedRoute>
+                  <TrackingBoard />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/dispatch"
+              element={
+                <ProtectedRoute>
+                  <DispatchPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/admin"
+              element={
+                <ProtectedRoute adminOnly>
+                  <AdminSetup />
                 </ProtectedRoute>
               }
             />
