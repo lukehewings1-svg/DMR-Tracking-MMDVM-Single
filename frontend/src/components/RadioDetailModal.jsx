@@ -369,14 +369,16 @@ export function RadioDetailModal({
                   <User className="h-3 w-3" /> Private call to {radio?.callsign || `ID ${dmrId}`}
                 </div>
                 <PTTButton
-                  targetDmrId={dmrId}
+                  callType="private"
+                  targetId={dmrId}
+                  label={radio?.callsign || `ID ${dmrId}`}
                   callerCallsign={user?.callsign || "control"}
+                  testid="detail-ptt-private"
                 />
                 <p className="mt-2 mono text-[10px] text-neutral-500">
-                  If a DVSI / ThumbDV AMBE dongle is attached to the server, this
-                  routes browser mic → server → dongle → DMR voice frame to the
-                  radio. Without the dongle it falls back to sending a DMR text
-                  message alerting the operator.
+                  Live voice goes out through the AMBE dongle (server) or a DMR818
+                  gateway. With neither connected it sends a DMR text asking the
+                  operator to call in.
                 </p>
               </div>
               {selectedGroup && (
@@ -385,9 +387,12 @@ export function RadioDetailModal({
                     <UsersIcon className="h-3 w-3" /> Group call · {selectedGroup.name} (TG {selectedGroup.talkgroup_id})
                   </div>
                   <PTTButton
+                    callType="group"
+                    targetId={selectedGroup.talkgroup_id}
                     groupId={selectedGroup.id}
-                    groupName={selectedGroup.name}
+                    label={selectedGroup.name}
                     callerCallsign={user?.callsign || "control"}
+                    testid="detail-ptt-group"
                   />
                   <p className="mt-2 mono text-[10px] text-neutral-500">
                     Broadcasts to every radio on TG {selectedGroup.talkgroup_id} across all connected MMDVMs.

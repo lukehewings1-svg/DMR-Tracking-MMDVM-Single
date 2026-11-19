@@ -9,6 +9,8 @@ import { AlertsPanel } from "@/components/GeofencePanel";
 import { RadioDetailModal } from "@/components/RadioDetailModal";
 import { ScreenShell } from "@/components/ScreenShell";
 import { TxNowList } from "@/components/TxNowList";
+import { VoicePanel } from "@/components/VoicePanel";
+import { Mic } from "lucide-react";
 import { useLiveData } from "@/hooks/useLiveData";
 import { useOverlays } from "@/hooks/useOverlays";
 import { useBreakpoint, isNarrow } from "@/hooks/useBreakpoint";
@@ -63,6 +65,7 @@ export default function DispatchPage() {
   );
   const messaging = <MessagingPanel radios={radios} groups={groups} messages={messages} currentUser={user} />;
   const log = <ShiftLogPanel liveEntry={live.liveLogEntry} />;
+  const voice = <VoicePanel groups={groups} radios={radios} />;
 
   return (
     <ScreenShell live={live} testid="dispatch-page" title="Dispatch" onEmergencyFocus={open}>
@@ -74,12 +77,14 @@ export default function DispatchPage() {
             {mobileView === "groups" && groupsBlock}
             {mobileView === "msg" && <div className="flex h-full min-h-0 flex-col">{messaging}</div>}
             {mobileView === "log" && <div className="flex h-full min-h-0 flex-col">{log}</div>}
+            {mobileView === "voice" && <div className="h-full overflow-y-auto">{voice}</div>}
           </div>
           <nav className="flex shrink-0 border-t border-[#2a2a2a] bg-[#0a0a0a]">
             <Tab testid="dtab-map" active={mobileView === "map"} onClick={() => setMobileView("map")} icon={<MapIcon className="h-3.5 w-3.5" />} label="Map" />
             <Tab testid="dtab-radios" active={mobileView === "radios"} onClick={() => setMobileView("radios")} icon={<RadioIcon className="h-3.5 w-3.5" />} label="Radios" />
             <Tab testid="dtab-groups" active={mobileView === "groups"} onClick={() => setMobileView("groups")} icon={<Users className="h-3.5 w-3.5" />} label="Groups" />
             <Tab testid="dtab-msg" active={mobileView === "msg"} onClick={() => setMobileView("msg")} icon={<MessageSquare className="h-3.5 w-3.5" />} label="Msg" />
+            <Tab testid="dtab-voice" active={mobileView === "voice"} onClick={() => setMobileView("voice")} icon={<Mic className="h-3.5 w-3.5" />} label="Voice" />
             <Tab testid="dtab-log" active={mobileView === "log"} onClick={() => setMobileView("log")} icon={<Clock className="h-3.5 w-3.5" />} label="Log" />
           </nav>
         </div>
@@ -91,6 +96,7 @@ export default function DispatchPage() {
             <div data-testid="dispatch-groups" className="min-h-0 border-t border-[#2a2a2a] bg-[#0a0a0a]">{groupsBlock}</div>
           </div>
           <div className="flex min-h-0 flex-col border-l border-[#2a2a2a] bg-[#0a0a0a]">
+            <div className="shrink-0">{voice}</div>
             <div className="flex shrink-0 border-b border-[#2a2a2a]">
               <Tab testid="dispatch-tab-msg" active={rightTab === "msg"} onClick={() => setRightTab("msg")} icon={<MessageSquare className="h-3 w-3" />} label="Messages" />
               <Tab testid="dispatch-tab-log" active={rightTab === "log"} onClick={() => setRightTab("log")} icon={<Clock className="h-3 w-3" />} label="Shift log" />

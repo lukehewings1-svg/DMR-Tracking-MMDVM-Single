@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
 import uuid
@@ -46,6 +47,10 @@ from situational import (
     public_radio_projection,
 )
 from voice import VoiceGateway
+from ambe_dongle import AmbeDongle
+from voice_hub import Dispatcher, VoiceHub
+import hashlib
+import secrets
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / ".env")
@@ -84,6 +89,7 @@ shift_log: Optional[ShiftLogStore] = None
 overlay_store: Optional[OverlayStore] = None
 situational_store: Optional[SituationalTokenStore] = None
 voice_gateway = VoiceGateway()
+voice_hub: Optional[VoiceHub] = None
 
 
 # --------------------------------------------------------------------------- #
@@ -423,6 +429,11 @@ async def on_dmr_sms(inbound: dict) -> Optional[dict]:
 
 
 async def on_voice_activity(evt: dict) -> None:
+    if voice_hub and "payload" in evt:
+        await voice_hub.on_network_frame(
+            evt["src_dmr_id"], evt["dst_id"], evt["is_private"], evt["bits"], evt["stream_id"], evt["payload"]
+        )
+        evt = {k: v for k, v in evt.items() if k not in ("payload", "bits")}
     radio = await db.radios.find_one(
         {"dmr_id": evt["src_dmr_id"]}, {"_id": 0, "callsign": 1}
     )
@@ -487,7 +498,7 @@ async def send_dmrd_broadcast(frame: bytes) -> int:
 # --------------------------------------------------------------------------- #
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global hb_master, hb_transport, geofence_engine, group_store, channel_store, repeater_config_store, message_store, shift_log, overlay_store, situational_store
+    global voice_hub, hb_master, hb_transport, geofence_engine, group_store, channel_store, repeater_config_store, message_store, shift_log, overlay_store, situational_store
     await auth.ensure_indexes()
     await auth.seed_admin()
     geofence_engine = GeofenceEngine(db, _broadcast)
@@ -533,6 +544,20 @@ async def lifespan(app: FastAPI):
         logger.warning("HB Master could not bind to %s:%s (%s).", HB_BIND_HOST, HB_BIND_PORT, exc)
         hb_transport = None
         hb_master = None
+    dongle = AmbeDongle(os.environ.get("AMBE_DEVICE_PATH") or None, int(os.environ.get("AMBE_BAUD") or 460800))
+    await asyncio.to_thread(dongle.open)
+    voice_hub = VoiceHub(
+        dongle=dongle,
+        server_id=SERVER_DMR_ID,
+        voice_slot=int(os.environ.get("VOICE_SLOT") or 2),
+        color_code=int(os.environ.get("DMR_COLOR_CODE") or 1),
+        send_dmrd=send_dmrd_broadcast,
+        repeaters_online=lambda: sum(1 for s in hb_master.sessions.values() if s.authenticated) if hb_master else 0,
+        radio_lookup=lambda dmr_id: db.radios.find_one({"dmr_id": dmr_id}, {"_id": 0, "callsign": 1, "group_id": 1}),
+        on_change=lambda st: _broadcast({"type": "voice_status", "status": st}),
+        on_gateway_event=on_gateway_event,
+    )
+    voice_hub.start()
     yield
     if hb_transport is not None:
         hb_transport.close()
@@ -934,7 +959,7 @@ async def api_simulate_inbound(body: InboundSMSInject, _: dict = Depends(get_cur
 # --------------------------------------------------------------------------- #
 @api_router.get("/voice/status")
 async def api_voice_status(_: dict = Depends(get_current_user)):
-    return voice_gateway.status()
+    return {**voice_gateway.status(), **voice_hub.status()}
 
 
 @api_router.post("/voice/ptt")
@@ -1239,6 +1264,151 @@ async def overlays_delete_image(overlay_id: str, image_id: str, _: dict = Depend
     updated = await overlay_store.delete_image(overlay_id, image_id)
     await _broadcast({"type": "overlay_upserted", "overlay": updated})
     return updated
+
+
+# --------------------------------------------------------------------------- #
+# Emergency acknowledge (any logged-in user; clearing stays admin-only)
+# --------------------------------------------------------------------------- #
+@api_router.post("/emergencies/{emergency_id}/ack")
+async def ack_emergency(emergency_id: str, user: dict = Depends(get_current_user)):
+    doc = await db.emergencies.find_one({"id": emergency_id, "status": "active"}, {"_id": 0})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Active emergency not found")
+    if not doc.get("acknowledged_at"):
+        who = user.get("callsign") or user["email"]
+        doc.update(acknowledged_at=_now_iso(), acknowledged_by=who)
+        await db.emergencies.update_one({"id": emergency_id}, {"$set": {"acknowledged_at": doc["acknowledged_at"], "acknowledged_by": who}})
+        await _broadcast({"type": "emergency_ack", "emergency": doc})
+        if shift_log:
+            await shift_log._log(
+                "emergency_ack",
+                f"Emergency for {doc.get('callsign') or 'ID ' + str(doc['dmr_id'])} acknowledged by {who}",
+                dmr_id=doc["dmr_id"], callsign=doc.get("callsign"), group_id=doc.get("group_id"), actor=who,
+            )
+    return doc
+
+
+# --------------------------------------------------------------------------- #
+# Voice gateways (DMR818 + Pi) and live dispatcher voice
+# --------------------------------------------------------------------------- #
+class GatewayCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=60)
+
+
+def _key_hash(key: str) -> str:
+    return hashlib.sha256(key.encode()).hexdigest()
+
+
+@api_router.get("/gateways")
+async def list_gateways(_: dict = Depends(get_current_admin)):
+    docs = await db.gateways.find({}, {"_id": 0, "key_hash": 0}).sort("created_at", 1).to_list(100)
+    online = {g["id"] for g in voice_hub.status()["gateways"]}
+    return [{**d, "online": d["id"] in online} for d in docs]
+
+
+@api_router.post("/gateways")
+async def create_gateway(body: GatewayCreate, _: dict = Depends(get_current_admin)):
+    key = secrets.token_urlsafe(24)
+    doc = {"id": str(uuid.uuid4()), "name": body.name, "key_hash": _key_hash(key), "created_at": _now_iso(), "last_seen": None}
+    await db.gateways.insert_one(doc)
+    doc.pop("_id", None)
+    doc.pop("key_hash")
+    return {**doc, "key": key}
+
+
+@api_router.delete("/gateways/{gateway_id}")
+async def delete_gateway(gateway_id: str, _: dict = Depends(get_current_admin)):
+    await db.gateways.delete_one({"id": gateway_id})
+    gw = voice_hub.gateways.get(gateway_id)
+    if gw:
+        await gw["ws"].close(code=4403)
+    return {"ok": True}
+
+
+async def on_gateway_event(evt: dict) -> None:
+    if evt.get("type") == "emergency" and evt.get("src_id"):
+        await on_emergency({"src_dmr_id": int(evt["src_id"]), "talkgroup_id": evt.get("dst_id"), "repeater_id": None,
+                            "signature": "dmr818-alarm", "is_private": False})
+
+
+async def _ws_user(websocket: WebSocket) -> Optional[dict]:
+    import jwt as _jwt
+    try:
+        payload = _jwt.decode(websocket.query_params.get("token") or "", os.environ["JWT_SECRET"], algorithms=["HS256"])
+        user = await db.users.find_one({"id": payload["sub"]}, {"_id": 0, "password_hash": 0})
+        return user if user and user.get("status") == "approved" else None
+    except Exception:  # noqa: BLE001
+        return None
+
+
+@api_router.websocket("/voice/ws")
+async def voice_ws(websocket: WebSocket):
+    user = await _ws_user(websocket)
+    if not user:
+        await websocket.close(code=4401)
+        return
+    allowed = user.get("allowed_group_ids") or []
+    tgs = groups = None
+    if user.get("role") != "admin" and allowed:
+        groups = set(allowed)
+        tgs = {g["talkgroup_id"] async for g in db.groups.find({"id": {"$in": allowed}}, {"_id": 0, "talkgroup_id": 1})}
+    await websocket.accept()
+    await voice_hub.add_dispatcher(Dispatcher(websocket, user, tgs, groups))
+    try:
+        while True:
+            msg = await websocket.receive()
+            if msg.get("type") == "websocket.disconnect":
+                break
+            if msg.get("bytes"):
+                await voice_hub.ptt_audio(websocket, msg["bytes"])
+                continue
+            try:
+                data = json.loads(msg.get("text") or "{}")
+            except ValueError:
+                continue
+            if data.get("type") == "ptt_start":
+                call_type = "private" if data.get("call_type") == "private" else "group"
+                target = int(data.get("target_id") or 0)
+                tgt_group = None
+                if call_type == "private":
+                    r = await db.radios.find_one({"dmr_id": target}, {"_id": 0, "group_id": 1})
+                    tgt_group = (r or {}).get("group_id")
+                await voice_hub.ptt_start(websocket, call_type, target, tgt_group)
+            elif data.get("type") == "ptt_end":
+                await voice_hub.ptt_end(websocket)
+    except (WebSocketDisconnect, RuntimeError):
+        pass
+    finally:
+        await voice_hub.remove_dispatcher(websocket)
+
+
+@api_router.websocket("/gateway/ws")
+async def gateway_ws(websocket: WebSocket):
+    key = websocket.query_params.get("key") or websocket.headers.get("x-gateway-key") or ""
+    gw = await db.gateways.find_one({"key_hash": _key_hash(key)}, {"_id": 0}) if key else None
+    if not gw:
+        await websocket.close(code=4401)
+        return
+    await websocket.accept()
+    await db.gateways.update_one({"id": gw["id"]}, {"$set": {"last_seen": _now_iso()}})
+    await voice_hub.add_gateway(gw["id"], gw["name"], websocket)
+    try:
+        while True:
+            msg = await websocket.receive()
+            if msg.get("type") == "websocket.disconnect":
+                break
+            if msg.get("bytes"):
+                await voice_hub.gateway_audio(gw["id"], msg["bytes"])
+            elif msg.get("text"):
+                try:
+                    await voice_hub.gateway_message(gw["id"], json.loads(msg["text"]))
+                except ValueError:
+                    pass
+    except (WebSocketDisconnect, RuntimeError):
+        pass
+    finally:
+        await db.gateways.update_one({"id": gw["id"]}, {"$set": {"last_seen": _now_iso()}})
+        await voice_hub.remove_gateway(gw["id"], websocket)
 
 
 # --------------------------------------------------------------------------- #

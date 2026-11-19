@@ -181,3 +181,14 @@ export function apiErrorMessage(err) {
 export const getUpdateStatus = () => api.get("/admin/update/status").then((r) => r.data);
 export const applyUpdate = () => api.post("/admin/update/apply").then((r) => r.data);
 export const getUpdateJob = () => api.get("/admin/update/job").then((r) => r.data);
+
+export const ackEmergency = (id) => api.post(`/emergencies/${id}/ack`).then((r) => r.data);
+export const listGateways = () => api.get("/gateways").then((r) => r.data);
+export const createGateway = (name) => api.post("/gateways", { name }).then((r) => r.data);
+export const deleteGateway = (id) => api.delete(`/gateways/${id}`).then((r) => r.data);
+export const voiceWsUrl = () => {
+  const url = new URL(`${API}/voice/ws`);
+  url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+  url.searchParams.set("token", localStorage.getItem(TOKEN_KEY) || "");
+  return url.toString();
+};

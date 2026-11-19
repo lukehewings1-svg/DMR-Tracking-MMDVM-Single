@@ -1,5 +1,5 @@
 import { AlertOctagon, X } from "lucide-react";
-import { clearEmergency } from "@/lib/api";
+import { clearEmergency, ackEmergency } from "@/lib/api";
 import { formatDistanceToNowStrict } from "date-fns";
 import { toast } from "sonner";
 import { useAuth } from "@/context/AuthContext";
@@ -16,6 +16,14 @@ export function EmergencyBanner({ emergencies, onFocus, onCleared }) {
       onCleared?.();
     } catch (e) {
       toast.error(e?.response?.data?.detail || "Failed to clear");
+    }
+  };
+
+  const handleAck = async (id) => {
+    try {
+      await ackEmergency(id);
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Couldn't acknowledge");
     }
   };
 
@@ -48,6 +56,25 @@ export function EmergencyBanner({ emergencies, onFocus, onCleared }) {
                     ? formatDistanceToNowStrict(new Date(e.timestamp))
                     : ""}
                 </span>
+                {e.acknowledged_at ? (
+                  <span data-testid={`emergency-acked-${e.id}`} className="text-[9px] uppercase text-[#ffb800]">
+                    ACK · {e.acknowledged_by}
+                  </span>
+                ) : (
+                  <span
+                    role="button"
+                    tabIndex={0}
+                    onClick={(ev) => {
+                      ev.stopPropagation();
+                      handleAck(e.id);
+                    }}
+                    data-testid={`emergency-ack-${e.id}`}
+                    className="border border-[#ffb800] bg-[#ffb800] px-1.5 text-[9px] font-bold uppercase text-black hover:bg-black hover:text-[#ffb800]"
+                    title="Acknowledge - stops the siren"
+                  >
+                    ACK
+                  </span>
+                )}
                 {isAdmin && (
                   <span
                     role="button"
@@ -58,7 +85,7 @@ export function EmergencyBanner({ emergencies, onFocus, onCleared }) {
                     }}
                     data-testid={`emergency-clear-${e.id}`}
                     className="ml-1 rounded-none border border-transparent p-0.5 hover:border-current"
-                    title="Acknowledge / clear"
+                    title="Clear emergency (admin)"
                   >
                     <X className="h-3 w-3" />
                   </span>

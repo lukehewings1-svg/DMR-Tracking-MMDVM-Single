@@ -187,6 +187,8 @@ export function useLiveData() {
             } else if (msg.type === "radio_update") applyRadioUpdate(msg.dmr_id, msg.updates);
             else if (msg.type === "alert") applyAlert(msg.alert);
             else if (msg.type === "emergency") applyEmergency(msg.emergency);
+            else if (msg.type === "emergency_ack")
+              setEmergencies((prev) => prev.map((e) => (e.id === msg.emergency.id ? { ...e, ...msg.emergency } : e)));
             else if (msg.type === "emergency_cleared")
               applyEmergencyCleared(msg.emergency_id, msg.dmr_id);
             else if (msg.type === "message") applyMessage(msg.message);
@@ -221,6 +223,14 @@ export function useLiveData() {
     return false;
   }, []);
 
+  // Siren repeats every few seconds until every active emergency is acknowledged.
+  const unacknowledged = emergencies.filter((e) => !e.acknowledged_at).length;
+  useEffect(() => {
+    if (!unacknowledged) return;
+    const t = setInterval(playSiren, 5000);
+    return () => clearInterval(t);
+  }, [unacknowledged]);
+
   return {
     radios,
     packets,
@@ -240,6 +250,7 @@ export function useLiveData() {
     refreshAll,
     clearAllAlerts,
     consumeFlash,
+    unacknowledged,
     setGroups,
     setMessages,
   };

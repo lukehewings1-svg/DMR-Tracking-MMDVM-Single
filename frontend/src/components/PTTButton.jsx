@@ -1,109 +1,94 @@
-import { useRef, useState } from "react";
-import { Mic, MicOff, Radio, MessageSquare } from "lucide-react";
-import { voiceStatus, voicePtt, sendMessage } from "@/lib/api";
+import { useEffect, useRef } from "react";
+import { Mic, MessageSquare, Loader2 } from "lucide-react";
 import { toast } from "sonner";
+import { sendMessage } from "@/lib/api";
+import { voiceClient } from "@/lib/voiceClient";
+import { useVoice } from "@/hooks/useVoice";
 
-/**
- * PTT (push-to-talk) button. Requires an AMBE hardware dongle attached to the
- * server. When unavailable, the button falls back to sending a DMR text message
- * with the caller's callsign so the target radio still knows someone is trying
- * to reach them.
- */
-export function PTTButton({ targetDmrId, groupId, groupName, callerCallsign }) {
-  const [hw, setHw] = useState(null);
-  const [pressing, setPressing] = useState(false);
-  const mediaRef = useRef(null);
+// Hold-to-talk. Live voice via the AMBE dongle or DMR818 gateway; when neither
+// is available it sends a "please call in" DMR text instead.
+export function PTTButton({ callType, targetId, groupId, label, callerCallsign, spaceKey = false, testid = "ptt-button" }) {
+  const v = useVoice();
+  const holding = useRef(false);
+  const route = v.status?.route;
+  const busyBy = v.status?.tx && v.tx === "idle" ? v.status.tx.user : null;
 
-  const ensureStatus = async () => {
-    if (hw) return hw;
-    const s = await voiceStatus();
-    setHw(s);
-    return s;
-  };
-
-  const onPress = async () => {
-    const s = await ensureStatus();
-    if (!s.ambe_hardware_available) {
-      // Fallback: send a "please call in" SMS
-      const text = `[${callerCallsign || "control"}] Requesting voice contact on ${
-        groupId ? `group ${groupName}` : `ID ${targetDmrId}`
-      }`;
+  const press = async () => {
+    if (holding.current || !targetId) return;
+    holding.current = true;
+    if (!route) {
+      holding.current = false;
+      const text = `[${callerCallsign || "control"}] Please call in`;
       try {
-        await sendMessage(
-          targetDmrId ? { text, target_dmr_id: targetDmrId } : { text, group_id: groupId }
-        );
-        toast(`AMBE dongle not detected - sent DMR text instead`, {
-          description: s.reason,
-          duration: 5000,
-        });
+        await sendMessage(callType === "private" ? { text, target_dmr_id: targetId } : { text, group_id: groupId });
+        toast("No voice route - sent a DMR text instead", { description: "Connect an AMBE dongle or a DMR818 gateway for live voice." });
       } catch (e) {
-        toast.error(e?.response?.data?.detail || "Fallback SMS failed");
+        toast.error(e?.response?.data?.detail || "Fallback text failed");
       }
       return;
     }
-    // AMBE available: begin PTT session
-    setPressing(true);
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      mediaRef.current = stream;
-      await voicePtt({ target_dmr_id: targetDmrId, group_id: groupId });
-      toast.success(`Transmitting to ${groupId ? groupName : `ID ${targetDmrId}`}`);
+      await voiceClient.startTx(callType, targetId);
+      if (!holding.current) voiceClient.stopTx();
     } catch (e) {
-      toast.error("Microphone unavailable");
-      setPressing(false);
+      holding.current = false;
+      toast.error(e.message === "Permission denied" ? "Microphone blocked by the browser" : e.message);
     }
   };
-
-  const onRelease = () => {
-    if (mediaRef.current) {
-      mediaRef.current.getTracks().forEach((t) => t.stop());
-      mediaRef.current = null;
-    }
-    setPressing(false);
+  const release = () => {
+    if (!holding.current) return;
+    holding.current = false;
+    voiceClient.stopTx();
   };
 
-  const hardwareOk = hw?.ambe_hardware_available;
-  const label = groupId ? `Talk to ${groupName || "group"}` : "Private call";
+  useEffect(() => {
+    if (!spaceKey) return;
+    const typing = (e) => ["INPUT", "TEXTAREA", "SELECT"].includes(e.target.tagName) || e.target.isContentEditable;
+    const down = (e) => {
+      if (e.code === "Space" && !e.repeat && !typing(e)) {
+        e.preventDefault();
+        press();
+      }
+    };
+    const up = (e) => {
+      if (e.code === "Space" && !typing(e)) release();
+    };
+    window.addEventListener("keydown", down);
+    window.addEventListener("keyup", up);
+    return () => {
+      window.removeEventListener("keydown", down);
+      window.removeEventListener("keyup", up);
+    };
+  });
+
+  const live = v.tx === "live";
+  const cls = live
+    ? "border-[#ff3b30] bg-[#ff3b30] text-black"
+    : !route
+    ? "border-[#ffb800] bg-[#1a1005] text-[#ffb800] hover:bg-[#ffb800] hover:text-black"
+    : "border-[#39ff14] bg-[#0a1a0a] text-[#39ff14] hover:bg-[#39ff14] hover:text-black";
 
   return (
-    <div className="space-y-1" data-testid="ptt-container">
-      <button
-        data-testid="ptt-button"
-        onMouseDown={onPress}
-        onMouseUp={onRelease}
-        onMouseLeave={onRelease}
-        onTouchStart={onPress}
-        onTouchEnd={onRelease}
-        className={`flex w-full items-center justify-center gap-2 border px-3 py-2 mono text-[11px] uppercase tracking-widest transition-colors ${
-          pressing
-            ? "border-[#ff3b30] bg-[#ff3b30] text-black"
-            : hardwareOk === false
-            ? "border-[#ffb800] bg-[#1a1005] text-[#ffb800] hover:bg-[#ffb800] hover:text-black"
-            : "border-[#39ff14] bg-[#0a1a0a] text-[#39ff14] hover:bg-[#39ff14] hover:text-black"
-        }`}
-      >
-        {hardwareOk === false ? (
-          <>
-            <MessageSquare className="h-3.5 w-3.5" />
-            {label} (SMS fallback)
-          </>
-        ) : pressing ? (
-          <>
-            <Mic className="h-3.5 w-3.5" /> TRANSMITTING…
-          </>
-        ) : (
-          <>
-            <Mic className="h-3.5 w-3.5" /> {label}
-          </>
-        )}
-      </button>
-      {hardwareOk === false && (
-        <div className="mono text-[9px] leading-snug text-neutral-500">
-          AMBE dongle not detected on server. Plug a DV3000/ThumbDV into this
-          machine and set AMBE_DEVICE_PATH in backend/.env to enable live PTT.
-          Falling back to DMR text message.
-        </div>
+    <button
+      data-testid={testid}
+      disabled={!targetId || !!busyBy}
+      onPointerDown={(e) => {
+        e.currentTarget.setPointerCapture?.(e.pointerId);
+        press();
+      }}
+      onPointerUp={release}
+      onPointerCancel={release}
+      onContextMenu={(e) => e.preventDefault()}
+      className={`flex w-full select-none items-center justify-center gap-2 border-2 px-3 py-3 mono text-[12px] font-semibold uppercase tracking-widest transition-colors disabled:opacity-40 ${cls}`}
+    >
+      {v.tx === "requesting" ? (
+        <Loader2 className="h-4 w-4 animate-spin" />
+      ) : route ? (
+        <Mic className="h-4 w-4" />
+      ) : (
+        <MessageSquare className="h-4 w-4" />
       )}
-    </div>
+      {live ? "Transmitting… release to stop" : busyBy ? `${busyBy} is talking` : route ? `Hold to talk · ${label}` : `Send call-in text · ${label}`}
+    </button>
   );
 }

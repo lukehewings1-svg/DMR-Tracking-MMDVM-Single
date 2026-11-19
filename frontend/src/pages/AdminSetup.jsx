@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { toast } from "sonner";
-import { Filter, Cpu, Users, Antenna, Bell, ShieldAlert, FlaskConical, ShieldCheck, BookOpen, Trash2, ScrollText, Download } from "lucide-react";
+import { Filter, Cpu, Users, Antenna, Bell, ShieldAlert, FlaskConical, ShieldCheck, BookOpen, Trash2, ScrollText, Download, Mic } from "lucide-react";
 import { MapView } from "@/components/MapView";
 import { ScreenShell } from "@/components/ScreenShell";
 import { CollapsiblePanel } from "@/components/CollapsiblePanel";
@@ -15,6 +15,7 @@ import { GeofencePanel, AlertsPanel } from "@/components/GeofencePanel";
 import { Injector } from "@/components/Injector";
 import { PacketLog } from "@/components/PacketLog";
 import { UpdatePanel } from "@/components/UpdatePanel";
+import { GatewaysPanel } from "@/components/GatewaysPanel";
 import { useLiveData } from "@/hooks/useLiveData";
 import { useOverlays } from "@/hooks/useOverlays";
 import { clearAll } from "@/lib/api";
@@ -59,6 +60,9 @@ export default function AdminSetup() {
             <UpdatePanel />
           </CollapsiblePanel>
           <OverlayManagerPanel editingOverlayId={editingOverlayId} onEditOverlay={setEditingOverlayId} currentMap={mapInstance} onOverlaysChanged={setOverlays} />
+          <CollapsiblePanel id="adm-voice" title="Voice (dongle & DMR818 gateways)" icon={<Mic className="h-3 w-3" />} testid="admin-panel-voice">
+            <GatewaysPanel />
+          </CollapsiblePanel>
           <CollapsiblePanel id="adm-channels" title="Channels (timeslots)" icon={<Filter className="h-3 w-3" />} testid="admin-panel-channels">
             <ChannelFilter channels={channels} filter={channelFilter} onFilter={setChannelFilter} onChanged={live.refreshAll} embedded />
           </CollapsiblePanel>

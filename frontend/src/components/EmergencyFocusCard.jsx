@@ -1,4 +1,6 @@
-import { AlertOctagon } from "lucide-react";
+import { AlertOctagon, BellOff } from "lucide-react";
+import { toast } from "sonner";
+import { ackEmergency } from "@/lib/api";
 import { formatDistanceToNowStrict } from "date-fns";
 
 function Row({ label, value, testid }) {
@@ -38,6 +40,21 @@ export function EmergencyFocusCard({ emergency, radio, group, others, onPick }) 
         <Row label="Position" value={lat != null ? `${lat.toFixed(5)}, ${lon.toFixed(5)}` : "no fix yet"} testid="emergency-focus-position" />
         <Row label="Speed" value={r.last_speed != null ? `${Math.round(r.last_speed)} km/h` : null} />
         <Row label="Last fix" value={r.last_seen ? `${formatDistanceToNowStrict(new Date(r.last_seen))} ago` : null} />
+      </div>
+      <div className="border-t border-[#ff3b30]/40 px-3 py-2">
+        {emergency.acknowledged_at ? (
+          <div data-testid="emergency-focus-acked" className="flex items-center gap-2 text-[11px] uppercase tracking-widest text-[#ffb800]">
+            <BellOff className="h-4 w-4" /> Acknowledged by {emergency.acknowledged_by} · siren off
+          </div>
+        ) : (
+          <button
+            data-testid="emergency-focus-ack"
+            onClick={() => ackEmergency(emergency.id).catch((e) => toast.error(e?.response?.data?.detail || "Couldn't acknowledge"))}
+            className="flex w-full items-center justify-center gap-2 border-2 border-[#ffb800] bg-[#ffb800] py-2 font-bold uppercase tracking-[0.3em] text-black transition-colors hover:bg-black hover:text-[#ffb800]"
+          >
+            <BellOff className="h-4 w-4" /> Acknowledge
+          </button>
+        )}
       </div>
       {others.length > 1 && (
         <div className="flex flex-wrap gap-1 border-t border-[#ff3b30]/40 px-3 py-2">

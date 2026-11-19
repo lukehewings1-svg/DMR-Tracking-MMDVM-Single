@@ -192,6 +192,8 @@ class HBMaster(asyncio.DatagramProtocol):
                 "channel": slot,
                 "channel_id": src_channel_id,
                 "relayed_to": relayed,
+                "bits": bits,
+                "payload": payload,
             }
         )
 
