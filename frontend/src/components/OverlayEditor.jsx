@@ -86,7 +86,7 @@ export function OverlayEditor({ overlay, canEdit }) {
   useEffect(() => {
     if (!map || !canEdit) return;
     map.pm.addControls({
-      position: "topleft",
+      position: "topright",
       drawMarker: true,
       drawCircleMarker: false,
       drawPolyline: true,

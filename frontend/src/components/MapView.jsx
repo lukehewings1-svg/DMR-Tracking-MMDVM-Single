@@ -93,9 +93,13 @@ function FitToRadios({ radios }) {
   return null;
 }
 
-function AutoFit({ radios, enabled }) {
+// mode true: refit on every position change; "new-radios": only when radios join/leave.
+function AutoFit({ radios, enabled, mode }) {
   const map = useMap();
-  const key = radios.map((r) => `${r.dmr_id}:${r.last_lat.toFixed(5)},${r.last_lon.toFixed(5)}`).join("|");
+  const key = radios
+    .map((r) => (mode === "new-radios" ? r.dmr_id : `${r.dmr_id}:${r.last_lat.toFixed(5)},${r.last_lon.toFixed(5)}`))
+    .sort()
+    .join("|");
   useEffect(() => {
     if (!enabled || radios.length === 0) return;
     const pts = radios.map((r) => [r.last_lat, r.last_lon]);
@@ -212,7 +216,7 @@ export function MapView({
         {focusTarget ? (
           <FocusOn target={focusTarget} zoom={17} />
         ) : autoFit ? (
-          <AutoFit radios={withPos} enabled />
+          <AutoFit radios={withPos} enabled mode={autoFit} />
         ) : (
           <FitToRadios radios={withPos} />
         )}

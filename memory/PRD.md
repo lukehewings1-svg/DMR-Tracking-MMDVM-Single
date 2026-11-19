@@ -81,3 +81,11 @@ Iteration 1: 14/14 backend tests pass, all frontend flows validated. Iteration 2
 ## Backlog
 - P1: Sepura LIP GPS decoding
 - P2: Motorola SMS protocol decoding
+
+## 2026-11 — Multi-screen layout + map layers
+- New screens with top switcher (ScreenNav): /board Tracking Board (auto-fit all radios, auto-zoom + crew card on emergency, clock/radio count, live TX list, siren arm prompt, fullscreen), /dispatch (roster, small map, groups/TX/alerts, messages + shift log), /admin (admin-only setup panels + overlay/geofence map), / All-in-one kept.
+- Radio `crew` field (RadioMeta + detail modal) shown on emergency card.
+- Base layers now all Esri, no key: Hybrid (default everywhere), Streets, Satellite, Terrain, Dark (upscaled past z16). OSM tiles removed (were "Access blocked").
+- Geoman toolbar moved to top-right (rotate control was covering it). Dispatch map only refits when radios join/leave.
+- Windows laptop guide, desktop launcher, hosted VPS guide/installer, DMR818 gateway wiring guide added.
+- Backlog: DMR818 Pi gateway software (dispatcher voice TX/RX), label clustering at low zoom, Sepura LIP, Motorola SMS.

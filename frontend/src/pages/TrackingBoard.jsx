@@ -77,7 +77,7 @@ export default function TrackingBoard() {
           <TxNowList voiceActivity={voiceActivity} groups={groups} radios={radios} />
         </div>
         {emergency && (
-          <div className="absolute left-14 top-3 z-[1000]">
+          <div className="absolute left-14 right-3 top-3 z-[1000] sm:right-auto">
             <EmergencyFocusCard emergency={emergency} radio={emgRadio} group={emgGroup} others={emergencies} onPick={setPickedId} />
           </div>
         )}

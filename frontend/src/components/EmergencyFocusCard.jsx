@@ -18,7 +18,7 @@ export function EmergencyFocusCard({ emergency, radio, group, others, onPick }) 
   return (
     <div
       data-testid="emergency-focus-card"
-      className="w-[min(380px,calc(100vw-24px))] border-2 border-[#ff3b30] bg-[#140303]/95 mono text-[12px] shadow-[0_0_30px_#ff3b3066] backdrop-blur"
+      className="w-full border-2 sm:w-[380px] border-[#ff3b30] bg-[#140303]/95 mono text-[12px] shadow-[0_0_30px_#ff3b3066] backdrop-blur"
     >
       <div className="flex items-center gap-2 bg-[#ff3b30] px-3 py-1.5 text-black">
         <AlertOctagon className="h-5 w-5" style={{ animation: "emergency-icon 0.6s ease-in-out infinite alternate" }} />

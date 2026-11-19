@@ -49,7 +49,7 @@ export default function DispatchPage() {
   };
 
   const map = (
-    <MapView radios={filtered} groups={groups} selectedId={selectedId} txActiveIds={txActiveIds} onSelect={open} geofences={geofences} overlays={overlays} autoFit={!selectedId} />
+    <MapView radios={filtered} groups={groups} selectedId={selectedId} txActiveIds={txActiveIds} onSelect={open} geofences={geofences} overlays={overlays} autoFit={selectedId ? false : "new-radios"} />
   );
   const roster = (
     <Roster radios={filtered} groups={groups} selectedId={selectedId} txActiveIds={txActiveIds} onSelect={setSelectedId} onOpenDetail={open} consumeFlash={live.consumeFlash} />

@@ -1,0 +1,47 @@
+{
+  "summary": "Tested the multi-screen split (Tracking Board /board, Dispatch /dispatch, Admin /admin, All-in-one /), the crew field, Hybrid base layers and admin-only access. Backend: new test_v2_screens.py 6/6 pass, regression test_v1_rollback.py 16/16 pass. Frontend: nearly everything requested works. ScreenNav shows on all 4 screens and highlights the active one. A non-admin user doesn't see the Admin link, and /admin and /admin/users send them to /. Board: the clock ticks, the radio count is right, 'channel quiet' empty state shows, the sound prompt goes away after one click, the emergency focus card shows callsign, DMR ID, crew, notes and position and zooms to 17 on that radio. With 2 emergencies the pick buttons and banner chips switch focus, and clearing returns the focus to the remaining one. With no emergency (GET /api/emergencies stubbed to [] so the seeded MEDIC-1 emergency stayed untouched) every marker fits on screen, and a radio injected in Manchester made the map refit to show it. Dispatch desktop: roster, map, groups, tabs, group filter (roster + map), double-click and marker click both open the modal, crew save and clear persist (null on clear), and a group message sent OK. Dispatch at 390px: all 5 bottom tabs work, the map is 661px tall, no horizontal overflow. Admin: all panels and links present, Clear-all shows the confirm (dismissed, data kept), overlay create works. Base layers: Hybrid is the default everywhere including /situational/:token, all tiles come from server.arcgisonline.com, no OSM requests, no tile errors, and Dark at zoom 19 shows upscaled z16 tiles instead of 'Map data not yet available'. All-in-one: detail tab stays put and typed crew text survives live updates. Two problems found: (1) the RotateControl covers the Geoman draw toolbar, so overlay shapes can't be drawn on the admin map (also affects All-in-one); (2) the Dispatch map re-fits on every position update, which undoes any zoom or pan the dispatcher makes.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "CORS middleware", "issue": "CORS_ORIGINS='*' with allow_credentials=True mirrors any Origin (tested: https://evil.example.com gets ACAO + credentials true). Risk is lower because auth uses a Bearer token in localStorage, not cookies, but explicit origins are recommended."},
+      {"endpoint": "DELETE /api/radios (clear all)", "issue": "Deletes radios, positions and fence_state but leaves active emergencies, so the banner and board focus card can still show radios that no longer exist. Not run (bulk delete); found by code review."},
+      {"endpoint": "POST /api/emergencies/simulate", "issue": "Upserts a radio doc when the dmr_id is unknown (on_emergency uses upsert=True), so simulating a typo'd id creates a ghost radio with no position."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "MapView RotateControl vs OverlayEditor (Geoman toolbar)", "issue": "While editing an overlay set, the RotateControl (its own absolute 'leaflet-top leaflet-left' div with marginTop 80) sits on top of the Geoman draw buttons (Draw Marker, Polyline, Rectangle, Polygon at y~217-307). Playwright: 'rotate-control subtree intercepts pointer events' when clicking 'Draw Rectangle', and elementFromPoint at each draw button returns the rotate control. Admins can't draw shapes on /admin, and the same MapView is used on All-in-one. Fix: render RotateControl as a proper L.Control in Leaflet's own topleft container (so it stacks), move it to bottomright, or set map.pm.addControls({position:'topright'}).", "selector": "[data-testid=rotate-control], .leaflet-pm-toolbar [title='Draw Rectangle']", "priority": "HIGH"},
+      {"component": "DispatchPage MapView autoFit", "issue": "autoFit={!selectedId} re-runs fitBounds whenever any radio position changes. Reproduced: zoomed the dispatch map from z8 to z14 with the wheel, injected one position update, and the map snapped back to z8. With live GPS this makes manual zoom/pan unusable on Dispatch. Suggest fitting once (plus when new radios appear) or pausing auto-fit after user interaction (movestart/zoomstart by the user) with a 'Re-fit' button.", "selector": "[data-testid=dispatch-map]", "priority": "MEDIUM"},
+      {"component": "TrackingBoard mobile (390px)", "issue": "EmergencyFocusCard is placed at left-14 (56px) with width min(380px,100vw-24px)=366px, so it overflows the right edge (ends at 422px) and is clipped: crew text is cut off ('A. Pat') and the card covers the BoardClock / radio count. The board-sound-prompt also covers the tx-now-list at the bottom until the first click.", "selector": "[data-testid=emergency-focus-card]", "priority": "LOW"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Dispatch / Board / Admin zoomed-out maps", "issues": ["London radios (MEDIC-1, OPS-3, FIRE-2) overlap into one unreadable label pile when the fit includes a far radio; consider label collision handling or clustering"]},
+      {"screen": "Mobile emergency banner chip", "issues": ["Chip text 'MEDIC-1 / 5 minutes' wraps over 2 lines at 390px; use whitespace-nowrap/truncate"]},
+      {"screen": "Dark layer at z18-20", "issues": ["Upscaled z16 tiles are very blurry; consider capping the Dark layer at maxZoom 18"]}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/test_v2_screens.py", "/app/backend/tests/test_v1_rollback.py", "/app/test_reports/pytest/pytest_v2_screens.xml"],
+  "action_items": [
+    "HIGH: Fix the RotateControl covering the Geoman draw toolbar in overlay edit mode (/admin and /). Make RotateControl a real L.Control in the topleft container, or move one of the two controls.",
+    "MEDIUM: Dispatch map: stop re-fitting on every position update. Auto-fit once or on new radios only, pause after user zoom/pan, and add a re-fit button.",
+    "LOW: Tracking board at 390px: emergency focus card overflows the viewport and hides the clock. Use left-3 right-3 / full width on mobile and move the clock.",
+    "LOW: DELETE /api/radios should also clear active emergencies, or the UI should hide emergencies whose radio is gone.",
+    "LOW: Set explicit CORS_ORIGINS instead of '*' with credentials."
+  ],
+  "critical_code_review_comments": [
+    "RotateControl.jsx renders a raw 'leaflet-top leaflet-left' div with marginTop 80 instead of joining Leaflet's control corner, so it overlaps any other topleft control (Geoman toolbar).",
+    "MapView AutoFit builds its key from every radio's position, so each live fix triggers fitBounds. Fine for the wall board, harmful on Dispatch.",
+    "AdminSetup.handleClear has no try/catch; a failed clearAll gives an unhandled rejection and no error toast.",
+    "TrackingBoard: if the emergency radio has no fix (focusLat null), focusTarget is null and the board silently auto-fits while the card says 'no fix yet'. Acceptable, but worth noting.",
+    "Dashboard.jsx is 825 lines (>700); consider splitting."
+  ],
+  "updated_files": ["/app/backend/tests/test_v2_screens.py"],
+  "success_rate": {"backend": "100% (22/22 across test_v2_screens + test_v1_rollback)", "frontend": "~90% (overlay shape drawing blocked by the control overlap; Dispatch manual zoom gets reset)"},
+  "test_credentials": "admin@dmrtracker.app / admin123 (from /app/memory/test_credentials.md) works. Temporary non-admin test_v2_dispatcher@example.com was created, approved, tested and deleted.",
+  "seed_data_creation": "Temporary: radios 2359901-2359903, 2359911 (TEST_B1), 2359912 (TEST_FAR), overlays TEST_overlay_v2 / TEST_overlay_v2b, situational token TEST_v2_sit, user test_v2_dispatcher@example.com. All deleted by id. Left behind (no delete endpoint): one message 'TEST_dispatch msg' sent to the Fire TG94 group, plus cleared (status=cleared) emergency history records for TEST_EMG and TEST_B1. Seeded data untouched: 3 radios, and MEDIC-1's emergency is still active.",
+  "retest_needed": true,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Run: cd /app/backend && REACT_APP_BACKEND_URL=<url> pytest tests/test_v2_screens.py tests/test_v1_rollback.py -n0. The DB has seeded radios 2350001 MEDIC-1 (active emergency, crew set), 2350002, 2350003 near London, no group_id. To test the board's no-emergency auto-fit without clearing the seeded emergency, stub GET **/api/emergencies* to [] with page.route. Overlay creation auto-enters edit mode, so clicking overlay-edit-{id} right after creating it turns editing OFF. Repro for the control overlap: /admin, create an overlay, then try to click '.leaflet-pm-toolbar [title=\"Draw Rectangle\"]'. Repro for the Dispatch zoom reset: wheel-zoom the dispatch map, POST /api/inject for any radio, and the zoom resets.",
+  "rca of the issue": "Overlay draw blocked: RotateControl is an absolutely positioned 'leaflet-top leaflet-left' container (pointerEvents auto, marginTop 80) separate from Leaflet's real topleft corner, where Geoman adds its toolbar under the zoom control. The two stack at the same coordinates and RotateControl wins on z-order. Dispatch zoom reset: AutoFit's effect depends on a key made of every radio's lat/lon, so any radio_update/position event re-runs fitBounds."
+}
