@@ -72,10 +72,16 @@ export function RadioDetailModal({
     setGroupId(radio?.group_id || "");
     setTab("info");
     setLoading(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dmrId]);
+
+  const lastSeen = radio?.last_seen;
+  useEffect(() => {
+    if (!dmrId) return;
     fetchPositions(dmrId)
       .then(setPositions)
       .finally(() => setLoading(false));
-  }, [dmrId, radio]);
+  }, [dmrId, lastSeen]);
 
   useEffect(() => {
     if (!dmrId || tab !== "history") return;
