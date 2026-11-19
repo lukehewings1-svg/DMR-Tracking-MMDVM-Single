@@ -366,7 +366,10 @@ Point every MMDVMHost at that IP in §4.1.
 
 #### Windows
 
-Recommended path is **WSL2** (Ubuntu). Under WSL2, follow the Linux/Raspberry
+**Native Windows step-by-step guide: see [`WINDOWS_SETUP.md`](./WINDOWS_SETUP.md)**
+(Python 3.11 64-bit + `backend/requirements-windows.txt`).
+
+Alternative path is **WSL2** (Ubuntu). Under WSL2, follow the Linux/Raspberry
 Pi steps below. The one gotcha:
 
 * WSL2 by default is on a virtual NIC — UDP 62031 will not reach your MMDVM
